@@ -1,0 +1,24 @@
+{
+  "description": "Deliberately broken. Five fixture cases, five different rules, exit 1.",
+  "contract": "contract.json",
+  "fixtures": "fixtures.json",
+  "call": true,
+  "mock": {
+    "mode": "in-process",
+    "baseUrl": "http://127.0.0.1:8080",
+    "routes": [
+      {
+        "operationId": "createOrder",
+        "caseId": "mock-disagrees",
+        "status": 201,
+        "contentType": "application/json",
+        "body": {
+          "id": "11111111-2222-4333-8444-555555555555",
+          "sku": "EDL-2200",
+          "quantity": 2,
+          "placedAt": "2026-02-03T09:15:00Z"
+        }
+      }
+    ]
+  }
+}

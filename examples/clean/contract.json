@@ -1,0 +1,97 @@
+{
+  "contractVersion": "1",
+  "title": "Orders API",
+  "components": {
+    "schemas": {
+      "NewOrder": {
+        "type": "object",
+        "required": ["sku", "quantity"],
+        "additionalProperties": false,
+        "properties": {
+          "sku": { "type": "string", "minLength": 3, "maxLength": 32 },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 999 },
+          "note": { "type": "string", "maxLength": 140 }
+        }
+      },
+      "Order": {
+        "type": "object",
+        "required": ["id", "sku", "quantity", "placedAt"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sku": { "type": "string", "minLength": 3 },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "placedAt": { "type": "string", "format": "date-time" },
+          "note": { "type": "string", "maxLength": 140 }
+        }
+      },
+      "Problem": {
+        "type": "object",
+        "required": ["type", "title", "status", "errors"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string", "format": "uri" },
+          "title": { "type": "string", "minLength": 1 },
+          "status": { "type": "integer", "minimum": 400, "maximum": 599 },
+          "errors": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["pointer", "detail"],
+              "additionalProperties": false,
+              "properties": {
+                "pointer": { "type": "string" },
+                "detail": { "type": "string", "minLength": 1 }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "operations": [
+    {
+      "id": "createOrder",
+      "description": "Place an order. Validation failures are documented, not exceptional.",
+      "method": "POST",
+      "path": "/orders",
+      "request": {
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": { "required": true } },
+        "body": { "$ref": "#/components/schemas/NewOrder" }
+      },
+      "responses": [
+        {
+          "status": 201,
+          "contentType": "application/json",
+          "headers": { "Location": { "required": true } },
+          "body": { "$ref": "#/components/schemas/Order" }
+        },
+        {
+          "status": 422,
+          "contentType": "application/problem+json",
+          "body": { "$ref": "#/components/schemas/Problem" }
+        }
+      ]
+    },
+    {
+      "id": "getOrder",
+      "description": "Fetch one order.",
+      "method": "GET",
+      "path": "/orders/{orderId}",
+      "responses": [
+        {
+          "status": 200,
+          "contentType": "application/json",
+          "body": { "$ref": "#/components/schemas/Order" }
+        },
+        {
+          "status": 404,
+          "contentType": "application/problem+json",
+          "body": { "$ref": "#/components/schemas/Problem" }
+        }
+      ]
+    }
+  ]
+}

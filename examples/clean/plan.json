@@ -1,0 +1,62 @@
+{
+  "description": "A contract, its fixtures, and an in-process mock that answers exactly what the fixtures document.",
+  "contract": "contract.json",
+  "fixtures": "fixtures.json",
+  "call": true,
+  "mock": {
+    "mode": "in-process",
+    "baseUrl": "http://127.0.0.1:8080",
+    "routes": [
+      {
+        "operationId": "createOrder",
+        "caseId": "create-order-accepted",
+        "status": 201,
+        "contentType": "application/json",
+        "headers": { "Location": "/orders/6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa" },
+        "body": {
+          "id": "6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa",
+          "sku": "EDL-2200",
+          "quantity": 3,
+          "placedAt": "2026-02-03T09:15:00Z",
+          "note": "leave at reception"
+        }
+      },
+      {
+        "operationId": "createOrder",
+        "caseId": "create-order-quantity-rejected",
+        "status": 422,
+        "contentType": "application/problem+json",
+        "body": {
+          "type": "https://errors.example.test/order-quantity",
+          "title": "The requested quantity is not available",
+          "status": 422,
+          "errors": [{ "pointer": "/quantity", "detail": "only 3 units remain" }]
+        }
+      },
+      {
+        "operationId": "getOrder",
+        "caseId": "get-order-found",
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "id": "6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa",
+          "sku": "EDL-2200",
+          "quantity": 3,
+          "placedAt": "2026-02-03T09:15:00Z"
+        }
+      },
+      {
+        "operationId": "getOrder",
+        "caseId": "get-order-missing",
+        "status": 404,
+        "contentType": "application/problem+json",
+        "body": {
+          "type": "https://errors.example.test/order-not-found",
+          "title": "No such order",
+          "status": 404,
+          "errors": [{ "pointer": "/orderId", "detail": "no order has this identifier" }]
+        }
+      }
+    ]
+  }
+}
