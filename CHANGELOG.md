@@ -1,0 +1,134 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+## Unreleased
+
+### Added
+
+- a fixture runner that checks each case's request and expected response against
+  a contract, with status, content type and body as three separate checks
+  carrying three separate rules — and with the status *class* consulted by none
+  of them, so a fixture documenting a `422` with the error body the contract
+  declares is a **pass**;
+- an `expected-application-error-verified` finding, emitted when a case expecting
+  a `4xx` or `5xx` matches its documented contract, so the property this shape of
+  tool most easily gets wrong is visible in the report when it goes right;
+- a JSON Pointer on every body mismatch, escaped per RFC 6901, so a property
+  literally named `a/b` does not silently become two path segments;
+- a purpose-built validator for a declared bounded subset of JSON Schema
+  2020-12 — no dependency, and a visible boundary: a keyword, dialect, format,
+  construct, reference or pattern outside the subset leaves the value unchecked,
+  the case uncounted and the run `incomplete`, and is never treated as satisfied;
+- conservative refusal of a `pattern` rather than compilation of it, for a length
+  bound, lookaround, and any quantifier applied to a group that itself repeats or
+  alternates — a contract is untrusted input;
+- calendar-correct `date` and `date-time` checking computed with arithmetic
+  rather than a host date parser, so a leap day is judged identically on every
+  machine and in every time zone;
+- media-type comparison on the essence and the contract's declared parameters,
+  in which `application/problem+json` does *not* satisfy a declared
+  `application/json`: a structured suffix tells a parser how to read the bytes,
+  it does not make two media types interchangeable in a contract;
+- an optional live call against an in-process mock declared in the plan, with
+  per-case routes so one operation can answer `201` to its success fixture and
+  `422` to its validation fixture;
+- refusal of any target that is not that local in-process mock — an external
+  host, a non-loopback address, a non-HTTP scheme, a URL carrying credentials —
+  decided *before* a call is constructed, and reported as evidence that was never
+  obtained rather than quietly answered from the local table;
+- three closed document shapes: every key of the plan, the contract and the
+  fixture set is declared, and an undeclared one is refused by name, so `expct`
+  cannot disable the response check;
+- real-path containment on both sides for the documents a plan declares, so a
+  symlink out of the plan directory is refused unread while a document genuinely
+  inside a root reached through a symlink is still read;
+- an optional `--out` copy of the report, refused when its destination shares an
+  inode with any input of the run — a hard link has no target for `realpath` to
+  resolve, and a real-path comparison is exactly how a tool comes to write its
+  report over its own contract;
+- strict UTF-8 decoding with `TextDecoder('utf-8', { fatal: true })` for every
+  byte source, the plan file included, so whether an input is decodable is the
+  decoder's decision and never an inference drawn from the decoded text;
+- explicit bounds on document bytes, operations, cases, body bytes, body depth,
+  schema depth and findings, each configurable in the plan and on the command
+  line, each capped so the configuration cannot spell past it, and each making
+  the run `incomplete` rather than truncating quietly;
+- sanitisation of every untrusted string that reaches output — case ids,
+  operation ids, header names, property names, media types, paths, pointers,
+  messages and evidence alike — removing C0, DEL, the whole C1 range (where
+  `U+0085` NEL and the 8-bit CSI `U+009B` live), the line and paragraph
+  separators, and the bidi formatting characters, whose `U+202E` would otherwise
+  reverse everything displayed after it;
+- a `run` object alongside the report envelope carrying the contract, the fixture
+  set, the mock and one record per case in declared order;
+- a CLI with `--help`, `--version`, `--json`, `--label`, `--call`, `--no-call`,
+  `--out` and the limit flags, the JSON report on stdout and nothing else,
+  diagnostics on stderr, and exit codes 0 / 1 / 2 — with an empty stdout for a
+  configuration error and an `incomplete` report for evidence that could not be
+  obtained, and with an unknown option or a repeated value-carrying flag refused
+  rather than silently overwriting the earlier value;
+- `runPlan` and `runPlanFile` as the public API;
+- runnable clean and deliberately broken example plans; the clean one passes with
+  two documented application errors among its four cases, and the broken one
+  fails with one rule per case;
+- the rule catalog, the three document schemas, the supported schema subset, the
+  limits, the report shape, the exit codes and the list of things this tool
+  cannot conclude, in `docs/contract-rules.md`.
+
+### Guaranteed
+
+- An expected application error passes its contract. `test/acceptance.test.mjs`
+  drives a documented `422` and a documented `500` through the real binary and
+  pins exit 0, `status: "pass"` and `summary.errors: 0` as literals — and drives
+  an undeclared `418`, a wrong content type and a wrong body field through the
+  same path to pin exit 1 with the field path.
+- No call leaves this machine. `test/no-network.test.mjs` opens a real HTTP
+  listener on a real loopback port, declares that exact port as the plan's mock,
+  runs the check to a passing verdict, and asserts the listener saw zero
+  connections and zero requests.
+- Unknown evidence is never a pass. Every path that could report silence as
+  health — an unreadable document, a schema outside the subset, a bound that was
+  hit, a live call that was refused or had no route, a run that reached a verdict
+  on nothing — sets `incomplete` and exits 2. `pass` with `checked: 0` is not
+  reachable.
+- Two runs over the same bytes produce byte-identical stdout, under a POSIX
+  locale and a Turkish one alike. No wall clock, random source, environment
+  variable or directory listing reaches the output.
+- Severity is pinned by consequence rather than by declaration.
+  `test/severity-decides.test.mjs` and `test/incomplete-severity.test.mjs` import
+  nothing from `src` and hold no rule table, no severity map and no parameterised
+  expectation: each case writes its own documents, runs the real binary, and
+  states its exit code, status, counted errors and printed severity word as
+  literals at the assertion. The coordinated flip — the frozen table, the
+  documented catalog and every expectation in the tests, all at once — is caught
+  for all 38 error rules.
+- Ordering is pinned by what the tool emits. Each of the six ordering sites is
+  driven through the real binary with values whose collation order disagrees with
+  their code-unit order, and an English collator substituted at any of the five
+  open-alphabet sites changes the emitted order and fails. The sixth orders rule
+  ids over a closed `[a-z0-9-]` alphabet on which both orderings agree for all
+  1560 ordered pairs of the real ids; that enumeration is in
+  `test/finding-order.test.mjs`, so it is recorded as an equivalent mutant rather
+  than counted as coverage or left unmentioned.
+- Nothing is written over an input. The `--out` refusal compares inodes, and
+  `test/path-identity.test.mjs` asserts both that a hard link's real path differs
+  from its input's and that the write was refused anyway.
+- Each guarantee above was removed in turn and the failure watched — demoting a
+  severity, substituting a collator, dropping a rule from the incomplete list,
+  narrowing the strip set. Where a substitution provably changes no output it is
+  recorded as an equivalent mutant, with the enumeration that proves it, rather
+  than counted as coverage.
+
+### Notes
+
+- The report envelope is the Edilec report contract v1. `run` is an additional
+  top-level object carrying the captured result; the four required envelope
+  fields are present and unchanged.
+- The contract document is this tool's own bounded shape, not OpenAPI. A
+  converter is deliberately absent: a half-understood conversion is how an
+  unchecked field comes to look checked.
+- A loopback socket transport for the mock is deliberately absent rather than
+  unfinished. `mock.mode` accepts `in-process` and nothing else.
+
+No release has been published.
