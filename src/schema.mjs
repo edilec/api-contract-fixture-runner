@@ -52,6 +52,7 @@ export const SUPPORTED_KEYWORDS = Object.freeze([
   'minLength',
   'minimum',
   'nullable',
+  'pattern',
   'properties',
   'required',
   'title',
@@ -187,16 +188,19 @@ export function checkPattern(source) {
       continue
     }
     if (character === '(') {
-      if (source[index + 1] === '?' && source[index + 2] !== ':') {
+      const nonCapturing = source[index + 1] === '?' && source[index + 2] === ':'
+      if (source[index + 1] === '?' && !nonCapturing) {
         return { ok: false, reason: 'lookaround, named groups and other extended group forms are outside the supported subset' }
       }
-      groupStarts.push(index)
+      // The body starts after "(?:" for a non-capturing group, so its own
+      // opener is not mistaken for a quantifier inside it.
+      groupStarts.push(nonCapturing ? index + 3 : index + 1)
       continue
     }
     if (character === ')') {
-      const start = groupStarts.pop()
-      if (start === undefined) return { ok: false, reason: 'the pattern has an unbalanced group' }
-      if (QUANTIFIERS.has(source[index + 1] ?? '') && repeatsOrAlternates(source.slice(start + 1, index))) {
+      const bodyStart = groupStarts.pop()
+      if (bodyStart === undefined) return { ok: false, reason: 'the pattern has an unbalanced group' }
+      if (QUANTIFIERS.has(source[index + 1] ?? '') && repeatsOrAlternates(source.slice(bodyStart, index))) {
         return { ok: false, reason: 'a quantifier is applied to a group that itself repeats or alternates, which can backtrack catastrophically' }
       }
     }
@@ -221,9 +225,9 @@ function isLeapYear(year) {
 /**
  * Calendar validity, computed rather than delegated.
  *
- * `new Date(...)` is not used anywhere in this package: a date check must not
- * depend on a host clock, a host time zone, or the parsing quirks of whatever
- * runtime is executing.
+ * The platform's date constructor is not used anywhere in this package: a date
+ * check must not depend on a host clock, a host time zone, or the parsing
+ * quirks of whatever runtime is executing.
  */
 function isCalendarDate(year, month, day) {
   if (month < 1 || month > 12 || day < 1) return false

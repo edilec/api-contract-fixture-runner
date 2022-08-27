@@ -367,7 +367,7 @@ export async function runPlan(rawPlan, options = {}) {
   if (typeof options.baseDir !== 'string' || options.baseDir === '') {
     throw new TypeError('A baseDir is required so the plan\'s document paths can be resolved and confined')
   }
-  const limits = applyLimits(options.limits ?? {})
+  let limits = applyLimits(options.limits ?? {})
   const label = sanitize(options.label ?? 'plan.json', 200)
 
   const collector = createCollector(label)
@@ -380,6 +380,17 @@ export async function runPlan(rawPlan, options = {}) {
   if (!planShape.ok || planShape.unknown.length > 0) {
     return haltedReport(label, limits, collector.rows)
   }
+
+  /**
+   * The plan may configure limits, and a command-line flag overrides it.
+   *
+   * This merge is the difference between a documented key and a decorative one.
+   * The values were validated with the rest of the plan above, so nothing here
+   * can throw. The plan file's *own* size bound is the one exception and is
+   * necessarily applied before this point: a limit cannot be read out of a file
+   * the run has already refused to read.
+   */
+  limits = applyLimits({ ...(isRecord(rawPlan.limits) ? rawPlan.limits : {}), ...(options.limits ?? {}) })
 
   let root
   try {

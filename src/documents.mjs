@@ -73,9 +73,9 @@ const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
 /**
  * Split a media type into its essence and its parameters.
  *
- * Case is folded with `toLowerCase`, never `toLocaleLowerCase`: the Turkish
- * dotless i would otherwise make `APPLICATION/JSON` fold differently depending
- * on the host locale, and this comparison decides pass or fail.
+ * Case is folded with `toLowerCase`, never its locale-sensitive sibling: the
+ * Turkish dotless i would otherwise make `APPLICATION/JSON` fold differently
+ * depending on the host locale, and this comparison decides pass or fail.
  */
 export function parseMediaType(value) {
   if (typeof value !== 'string') return { ok: false, reason: 'a media type must be a string' }
@@ -445,6 +445,19 @@ export function validatePlan(document) {
   if (Object.hasOwn(document, 'limits')) {
     if (requireRecord(document.limits, errors, '/limits', 'The "limits" section')) {
       closedKeys(document.limits, LIMIT_NAMES, '/limits', unknown)
+      // The values are checked here rather than left to `applyLimits`, so a bad
+      // limit in a plan file is reported on stdout like any other defect in a
+      // document the run did read -- not thrown as a usage error with nothing
+      // on stdout to say which key was wrong.
+      for (const name of LIMIT_NAMES) {
+        if (!Object.hasOwn(document.limits, name)) continue
+        const value = document.limits[name]
+        if (!Number.isInteger(value) || value < 1) {
+          fail(errors, `/limits/${name}`, `The limit "${name}" must be a positive integer.`, describeValue(value, 40))
+        } else if (value > HARD_LIMITS[name]) {
+          fail(errors, `/limits/${name}`, `The limit "${name}" must be no greater than ${HARD_LIMITS[name]}.`, String(value))
+        }
+      }
     }
   }
 

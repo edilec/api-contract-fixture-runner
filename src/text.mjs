@@ -13,10 +13,10 @@
  *
  * Never a locale-aware comparison under any of its spellings. Collation depends
  * on the ICU data compiled into whatever Node build happens to run, and every
- * spelling of it -- `localeCompare`, `Intl.Collator`, a collator captured in a
- * module-level constant -- drifts the same way. `Z` must precede `a`, `a-b`
- * must precede `a_b`, and `README` must precede `assets`, on every machine, for
- * ever.
+ * spelling of it -- the locale-aware String method, the collator object, a
+ * collator captured in a module-level constant -- drifts the same way. `Z` must
+ * precede `a`, `a-b` must precede `a_b`, and `README` must precede `assets`, on
+ * every machine, for ever.
  *
  * Pinning this function is not pinning the tool: every call site can be swapped
  * independently. `test/finding-order.test.mjs` pushes strings whose collation
@@ -56,8 +56,8 @@ export function byCodeUnit(left, right) {
 export const STRIPPED_RANGES = Object.freeze([
   Object.freeze({ name: 'C0', first: 0x0000, last: 0x001f }),
   Object.freeze({ name: 'DEL and C1', first: 0x007f, last: 0x009f }),
-  Object.freeze({ name: 'line and paragraph separators', first: 0x2028, last: 0x2029 }),
   Object.freeze({ name: 'bidi marks', first: 0x200e, last: 0x200f }),
+  Object.freeze({ name: 'line and paragraph separators', first: 0x2028, last: 0x2029 }),
   Object.freeze({ name: 'bidi embedding and override', first: 0x202a, last: 0x202e }),
   Object.freeze({ name: 'bidi isolates', first: 0x2066, last: 0x2069 }),
 ])
