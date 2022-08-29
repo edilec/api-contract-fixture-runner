@@ -103,20 +103,27 @@ All notable changes to this project are documented in this file.
   literals at the assertion. The coordinated flip — the frozen table, the
   documented catalog and every expectation in the tests, all at once — is caught
   for all 38 error rules.
-- Ordering is pinned by what the tool emits. Each of the six ordering sites is
-  driven through the real binary with values whose collation order disagrees with
-  their code-unit order, and an English collator substituted at any of the five
-  open-alphabet sites changes the emitted order and fails. The sixth orders rule
-  ids over a closed `[a-z0-9-]` alphabet on which both orderings agree for all
-  1560 ordered pairs of the real ids; that enumeration is in
-  `test/finding-order.test.mjs`, so it is recorded as an equivalent mutant rather
-  than counted as coverage or left unmentioned.
+- Ordering is pinned by what the tool emits. This tool has exactly six sites that
+  order anything reaching output: the five keys of `compareFindings` and the
+  unsupported-keyword list rendered into one finding. An English collator
+  substituted at each of them in turn kills five, each caught by a fixture whose
+  collation order and code-unit order genuinely disagree — `Z` against `a`,
+  `a-b` against `a_b`. The sixth orders rule ids over a closed `[a-z0-9-]`
+  alphabet on which both orderings agree for all 1560 ordered pairs of the real
+  ids, so substituting a collator there provably changes no output; that
+  enumeration is in `test/finding-order.test.mjs`, and the site is recorded as an
+  equivalent mutant rather than counted as coverage or left unmentioned.
 - Nothing is written over an input. The `--out` refusal compares inodes, and
   `test/path-identity.test.mjs` asserts both that a hard link's real path differs
   from its input's and that the write was refused anyway.
-- Each guarantee above was removed in turn and the failure watched — demoting a
-  severity, substituting a collator, dropping a rule from the incomplete list,
-  narrowing the strip set. Where a substitution provably changes no output it is
+- Each guarantee above was removed in turn and the failure watched: narrowing the
+  strip set to leave C1 or the bidi overrides through, dropping a rule from the
+  list that raises `incomplete`, replacing real-path containment with one that
+  accepts everything, comparing real paths instead of inodes for the `--out`
+  refusal, decoding leniently, dropping the vacuous-pass finding, ignoring
+  unknown document keys, allowing any declared mock target, failing every `4xx`
+  fixture for being a `4xx`, and unwiring the plan's limits from the run. All
+  twelve were caught. Where a substitution provably changes no output it is
   recorded as an equivalent mutant, with the enumeration that proves it, rather
   than counted as coverage.
 
