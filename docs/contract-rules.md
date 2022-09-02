@@ -238,14 +238,27 @@ schema are each reported.
 ### Patterns
 
 A contract is untrusted input, and `^(a+)+$` matched against a long string is a denial of service
-with no network and no dependency in sight. Rather than pretend to detect every catastrophic
-pattern, a conservative superset is refused:
+with no network and no dependency in sight. A regular expression is also the one thing here that
+cannot be stopped once it has started: the engine does not yield, so a deadline checked around the
+call never fires during it. The bound therefore has to be decided **before** the match, and a
+conservative superset is refused:
 
 - a pattern longer than 200 characters;
 - any lookaround, named group or other extended group form — `(` and `(?:` are the group forms
   accepted;
-- any quantifier applied to a group that itself repeats or alternates;
+- any back reference, control escape (`\cA`) or Unicode property escape (`\p{...}`);
+- any quantifier applied to a group that itself repeats or alternates — `(a+)+`, the textbook
+  exponential;
+- any two variable-length parts of one sequence whose boundary is not forced by a character neither
+  of them can match. `\d+\d+` is refused and so is `.*.*x`; `[A-Z]+\d+` and `\w+@\w+\.\w+` are
+  accepted, because the boundary between their repeating parts cannot move. A `?` counts as
+  variable-length exactly as a `*` does;
 - anything that does not compile as a Unicode regular expression.
+
+The second-to-last rule is not decoration. `^\d+\d+...\d+$` — twenty adjacent `\d+`, no nesting,
+no alternation, no group at all — ran for **109 seconds** against a forty-character subject before
+this refusal existed. `test/pattern-bound.test.mjs` measures the bound rather than declaring it: it
+drives each of these shapes through the real binary and kills the run if it has not answered.
 
 A refusal raises `schema-pattern-refused` and makes the run `incomplete`. It is never a quiet pass.
 

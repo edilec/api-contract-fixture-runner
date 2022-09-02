@@ -127,43 +127,492 @@ export function jsonTypeOf(value) {
   return 'unsupported'
 }
 
-const QUANTIFIERS = new Set(['*', '+', '?', '{'])
+/* ------------------------------------------------------------------ patterns */
 
-/** Whether a group body repeats or alternates, which is what makes a quantifier over it dangerous. */
-function repeatsOrAlternates(body) {
-  let inClass = false
-  for (let index = 0; index < body.length; index += 1) {
-    const character = body[index]
-    if (character === '\\') {
-      index += 1
-      continue
+/**
+ * The character sets the pattern analyser below reasons about.
+ *
+ * `any` is the dot, `unknown` is a construct this analyser does not model, and
+ * `none` is a zero-width assertion. Only `chars` carries real ranges. Neither
+ * `any` nor `unknown` is ever disjoint from anything: a construct this analyser
+ * cannot read must never be the reason a pattern is accepted.
+ */
+const ANY_SET = Object.freeze({ kind: 'any' })
+const UNKNOWN_SET = Object.freeze({ kind: 'unknown' })
+const NONE_SET = Object.freeze({ kind: 'none' })
+
+const DIGIT_RANGES = Object.freeze([[0x30, 0x39]])
+const WORD_RANGES = Object.freeze([[0x30, 0x39], [0x41, 0x5a], [0x5f, 0x5f], [0x61, 0x7a]])
+const SPACE_RANGES = Object.freeze([
+  [0x09, 0x0d],
+  [0x20, 0x20],
+  [0xa0, 0xa0],
+  [0x1680, 0x1680],
+  [0x2000, 0x200a],
+  [0x2028, 0x2029],
+  [0x202f, 0x202f],
+  [0x205f, 0x205f],
+  [0x3000, 0x3000],
+  [0xfeff, 0xfeff],
+])
+
+function mergeRanges(ranges) {
+  const sorted = [...ranges].map(([low, high]) => [low, high]).sort((left, right) => left[0] - right[0] || left[1] - right[1])
+  const merged = []
+  for (const [low, high] of sorted) {
+    const last = merged[merged.length - 1]
+    if (last !== undefined && low <= last[1] + 1) {
+      if (high > last[1]) last[1] = high
+    } else {
+      merged.push([low, high])
     }
-    if (inClass) {
-      if (character === ']') inClass = false
-      continue
+  }
+  return merged
+}
+
+function charSet(ranges, negated = false) {
+  return { kind: 'chars', negated, ranges: mergeRanges(ranges) }
+}
+
+function rangesOverlap(left, right) {
+  for (const [lowLeft, highLeft] of left) {
+    for (const [lowRight, highRight] of right) {
+      if (lowLeft <= highRight && lowRight <= highLeft) return true
     }
-    if (character === '[') {
-      inClass = true
-      continue
-    }
-    if (character === '(' && body.slice(index, index + 3) === '(?:') {
-      index += 2
-      continue
-    }
-    if (character === '|' || QUANTIFIERS.has(character)) return true
   }
   return false
+}
+
+/** Whether every range of `inner` sits inside one range of `outer`. */
+function rangesContain(outer, inner) {
+  for (const [low, high] of inner) {
+    let covered = false
+    for (const [lowOuter, highOuter] of outer) {
+      if (lowOuter <= low && high <= highOuter) {
+        covered = true
+        break
+      }
+    }
+    if (!covered) return false
+  }
+  return true
+}
+
+/**
+ * Whether two sets can never match the same character.
+ *
+ * Two negated sets are never called disjoint: their complements both cover the
+ * overwhelming majority of Unicode, so they overlap in practice and proving
+ * otherwise is not worth a wrong answer.
+ */
+function disjointSets(left, right) {
+  if (left.kind === 'none' || right.kind === 'none') return true
+  if (left.kind !== 'chars' || right.kind !== 'chars') return false
+  if (left.negated && right.negated) return false
+  if (!left.negated && !right.negated) return !rangesOverlap(left.ranges, right.ranges)
+  const negated = left.negated ? left : right
+  const positive = left.negated ? right : left
+  return rangesContain(negated.ranges, positive.ranges)
+}
+
+function classEscapeSet(character) {
+  if (character === 'd') return charSet(DIGIT_RANGES)
+  if (character === 'D') return charSet(DIGIT_RANGES, true)
+  if (character === 'w') return charSet(WORD_RANGES)
+  if (character === 'W') return charSet(WORD_RANGES, true)
+  if (character === 's') return charSet(SPACE_RANGES)
+  if (character === 'S') return charSet(SPACE_RANGES, true)
+  return null
+}
+
+const CONTROL_ESCAPES = new Map([
+  ['0', 0x00],
+  ['f', 0x0c],
+  ['n', 0x0a],
+  ['r', 0x0d],
+  ['t', 0x09],
+  ['v', 0x0b],
+])
+
+const NOT_COMPILABLE = 'the pattern did not compile as a Unicode regular expression'
+const UNSUPPORTED_ESCAPE = 'a back reference, a control escape or a Unicode property escape is outside the supported subset'
+const AMBIGUOUS =
+  'two variable-length parts of the pattern can match the same characters with nothing between them to fix the boundary, which can backtrack catastrophically'
+const NESTED_REPETITION = 'a quantifier is applied to a group that itself repeats or alternates, which can backtrack catastrophically'
+
+/** Read `\uXXXX`, `\u{XXXX}` or `\xXX` as one code point, or refuse. */
+function readCodePointEscape(state) {
+  const source = state.source
+  const kind = source[state.index + 1]
+  if (kind === 'x') {
+    const digits = source.slice(state.index + 2, state.index + 4)
+    if (!/^[0-9a-fA-F]{2}$/.test(digits)) return null
+    state.index += 4
+    return Number.parseInt(digits, 16)
+  }
+  if (source[state.index + 2] === '{') {
+    const close = source.indexOf('}', state.index + 3)
+    if (close === -1) return null
+    const digits = source.slice(state.index + 3, close)
+    if (!/^[0-9a-fA-F]{1,6}$/.test(digits)) return null
+    state.index = close + 1
+    return Number.parseInt(digits, 16)
+  }
+  const digits = source.slice(state.index + 2, state.index + 6)
+  if (!/^[0-9a-fA-F]{4}$/.test(digits)) return null
+  state.index += 6
+  return Number.parseInt(digits, 16)
+}
+
+/**
+ * One escape, as an atom set. `null` means refused, and `state.reason` says why.
+ */
+function parseEscape(state) {
+  const source = state.source
+  const next = source[state.index + 1]
+  if (next === undefined) {
+    state.reason = NOT_COMPILABLE
+    return null
+  }
+  const classSet = classEscapeSet(next)
+  if (classSet !== null) {
+    state.index += 2
+    return classSet
+  }
+  if (next === 'b' || next === 'B') {
+    state.index += 2
+    return NONE_SET
+  }
+  if (CONTROL_ESCAPES.has(next)) {
+    const code = CONTROL_ESCAPES.get(next)
+    state.index += 2
+    return charSet([[code, code]])
+  }
+  if (next === 'u' || next === 'x') {
+    const code = readCodePointEscape(state)
+    if (code === null) {
+      state.reason = NOT_COMPILABLE
+      return null
+    }
+    return charSet([[code, code]])
+  }
+  if (next === 'c' || next === 'p' || next === 'P' || /[1-9k]/.test(next)) {
+    state.reason = UNSUPPORTED_ESCAPE
+    return null
+  }
+  const code = source.codePointAt(state.index + 1)
+  state.index += 1 + String.fromCodePoint(code).length
+  return charSet([[code, code]])
+}
+
+/**
+ * One character class, as an atom set.
+ *
+ * A member this analyser cannot model -- a negated class escape inside a class,
+ * an escape outside the subset -- makes the whole class `unknown`, which is
+ * never disjoint from anything and so can only lead to a refusal.
+ */
+function parseCharacterClass(state) {
+  const source = state.source
+  state.index += 1
+  let negated = false
+  if (source[state.index] === '^') {
+    negated = true
+    state.index += 1
+  }
+  const ranges = []
+  let unknown = false
+  while (state.index < source.length && source[state.index] !== ']') {
+    let low
+    if (source[state.index] === '\\') {
+      const member = parseEscape(state)
+      if (member === null) {
+        if (state.reason === UNSUPPORTED_ESCAPE) {
+          state.reason = undefined
+          unknown = true
+          state.index += 2
+          continue
+        }
+        return null
+      }
+      if (member.kind !== 'chars' || member.negated) {
+        unknown = true
+        continue
+      }
+      if (member.ranges.length !== 1 || member.ranges[0][0] !== member.ranges[0][1]) {
+        ranges.push(...member.ranges)
+        continue
+      }
+      low = member.ranges[0][0]
+    } else {
+      low = source.codePointAt(state.index)
+      state.index += String.fromCodePoint(low).length
+    }
+    if (source[state.index] === '-' && source[state.index + 1] !== undefined && source[state.index + 1] !== ']') {
+      state.index += 1
+      let high
+      if (source[state.index] === '\\') {
+        const member = parseEscape(state)
+        if (member === null) {
+          if (state.reason === UNSUPPORTED_ESCAPE) {
+            state.reason = undefined
+            unknown = true
+            state.index += 2
+            continue
+          }
+          return null
+        }
+        if (member.kind !== 'chars' || member.negated || member.ranges.length !== 1 || member.ranges[0][0] !== member.ranges[0][1]) {
+          unknown = true
+          continue
+        }
+        high = member.ranges[0][0]
+      } else {
+        high = source.codePointAt(state.index)
+        state.index += String.fromCodePoint(high).length
+      }
+      if (high < low) {
+        state.reason = NOT_COMPILABLE
+        return null
+      }
+      ranges.push([low, high])
+      continue
+    }
+    ranges.push([low, low])
+  }
+  if (source[state.index] !== ']') {
+    state.reason = NOT_COMPILABLE
+    return null
+  }
+  state.index += 1
+  if (unknown) return UNKNOWN_SET
+  return charSet(ranges, negated)
+}
+
+/** The quantifier following an atom, defaulting to exactly one. */
+function parseQuantifier(state) {
+  const source = state.source
+  const character = source[state.index]
+  let min = 1
+  let max = 1
+  if (character === '*') {
+    min = 0
+    max = Number.POSITIVE_INFINITY
+    state.index += 1
+  } else if (character === '+') {
+    min = 1
+    max = Number.POSITIVE_INFINITY
+    state.index += 1
+  } else if (character === '?') {
+    min = 0
+    max = 1
+    state.index += 1
+  } else if (character === '{') {
+    const close = source.indexOf('}', state.index)
+    if (close === -1) {
+      state.reason = NOT_COMPILABLE
+      return null
+    }
+    const parts = /^(\d+)(,(\d*))?$/.exec(source.slice(state.index + 1, close))
+    if (parts === null) {
+      state.reason = NOT_COMPILABLE
+      return null
+    }
+    min = Number(parts[1])
+    max = parts[2] === undefined ? min : parts[3] === '' ? Number.POSITIVE_INFINITY : Number(parts[3])
+    if (max < min) {
+      state.reason = NOT_COMPILABLE
+      return null
+    }
+    state.index = close + 1
+  } else {
+    return { min, max }
+  }
+  // A lazy quantifier backtracks exactly as badly as a greedy one.
+  if (source[state.index] === '?') state.index += 1
+  return { min, max }
+}
+
+/**
+ * Whether a group can match a different number of characters in two ways, which
+ * is what lets a boundary beside it move. Alternation counts, conservatively.
+ */
+function branchesAreVariable(branches) {
+  if (branches.length > 1) return true
+  return branches[0].some((atom) => atom.variable)
+}
+
+/** Whether any atom of any branch carries a quantifier, or the group alternates. */
+function repeatsOrAlternates(branches) {
+  if (branches.length > 1) return true
+  for (const atom of branches[0]) {
+    if (atom.minRep !== 1 || atom.maxRep !== 1) return true
+    if (atom.group !== null && repeatsOrAlternates(atom.group)) return true
+  }
+  return false
+}
+
+function parseAtom(state) {
+  const source = state.source
+  const character = source[state.index]
+  let set
+  let group = null
+
+  if (character === '(') {
+    if (source[state.index + 1] === '?' && !source.startsWith('(?:', state.index)) {
+      state.reason = 'lookaround, named groups and other extended group forms are outside the supported subset'
+      return null
+    }
+    state.index += source.startsWith('(?:', state.index) ? 3 : 1
+    group = parseAlternation(state)
+    if (group === null) return null
+    if (source[state.index] !== ')') {
+      state.reason = 'the pattern has an unbalanced group'
+      return null
+    }
+    state.index += 1
+    set = UNKNOWN_SET
+  } else if (character === '[') {
+    set = parseCharacterClass(state)
+    if (set === null) return null
+  } else if (character === '\\') {
+    set = parseEscape(state)
+    if (set === null) return null
+  } else if (character === '^' || character === '$') {
+    state.index += 1
+    set = NONE_SET
+  } else if (character === '.') {
+    state.index += 1
+    set = ANY_SET
+  } else if (character === '*' || character === '+' || character === '?' || character === '{') {
+    state.reason = NOT_COMPILABLE
+    return null
+  } else if (character === ']' || character === '}') {
+    state.reason = NOT_COMPILABLE
+    return null
+  } else {
+    const code = source.codePointAt(state.index)
+    state.index += String.fromCodePoint(code).length
+    set = charSet([[code, code]])
+  }
+
+  const quantifier = parseQuantifier(state)
+  if (quantifier === null) return null
+
+  const atom = {
+    set,
+    group,
+    minRep: quantifier.min,
+    maxRep: quantifier.max,
+    zeroWidth: set === NONE_SET,
+  }
+  // "Variable" is the property that matters: an atom that can match a different
+  // number of characters in two different ways is where a boundary can move,
+  // and `x?` moves it exactly as surely as `x*` does.
+  atom.variable = quantifier.max > quantifier.min || (group !== null && branchesAreVariable(group))
+  return atom
+}
+
+function parseAlternation(state) {
+  const branches = []
+  let atoms = []
+  while (state.index < state.source.length) {
+    const character = state.source[state.index]
+    if (character === ')') break
+    if (character === '|') {
+      state.index += 1
+      branches.push(atoms)
+      atoms = []
+      continue
+    }
+    const atom = parseAtom(state)
+    if (atom === null) return null
+    atoms.push(atom)
+  }
+  branches.push(atoms)
+  return branches
+}
+
+/**
+ * Whether the boundary between two variable-length atoms of one sequence is
+ * forced by something between them.
+ *
+ * It is forced when some atom between the two must match at least one
+ * character that the left atom cannot match: the left atom then has exactly one
+ * possible extent, and the split between them cannot move. Everything before
+ * that barrier must itself be disjoint from the left atom, or the ambiguity
+ * simply moves there.
+ *
+ * With no barrier, the two are effectively adjacent, and they are safe only
+ * when no single character could be claimed by either of them -- `[A-Z]+\d+`
+ * is unambiguous, `\d+\d+` is the pattern that runs for two minutes.
+ */
+function boundaryIsForced(atoms, left, right) {
+  const leftSet = atoms[left].set
+  for (let index = left + 1; index < right; index += 1) {
+    const between = atoms[index]
+    if (!disjointSets(leftSet, between.set)) return false
+    if (between.minRep >= 1 && !between.zeroWidth) return true
+  }
+  const rightSet = atoms[right].set
+  if (!disjointSets(leftSet, rightSet)) return false
+  for (let index = left + 1; index < right; index += 1) {
+    if (!disjointSets(rightSet, atoms[index].set)) return false
+  }
+  return true
+}
+
+/** Refuse a sequence in which any two variable-length atoms can share a boundary. */
+function analyseSequence(atoms) {
+  const variable = []
+  for (let index = 0; index < atoms.length; index += 1) {
+    if (atoms[index].variable) variable.push(index)
+  }
+  for (let left = 0; left < variable.length; left += 1) {
+    for (let right = left + 1; right < variable.length; right += 1) {
+      if (!boundaryIsForced(atoms, variable[left], variable[right])) return AMBIGUOUS
+    }
+  }
+  return null
+}
+
+function analyseBranches(branches) {
+  for (const atoms of branches) {
+    const ambiguous = analyseSequence(atoms)
+    if (ambiguous !== null) return ambiguous
+    for (const atom of atoms) {
+      if (atom.group === null) continue
+      if (atom.maxRep > 1 && repeatsOrAlternates(atom.group)) return NESTED_REPETITION
+      const nested = analyseBranches(atom.group)
+      if (nested !== null) return nested
+    }
+  }
+  return null
 }
 
 /**
  * Decide whether a `pattern` from a contract may be compiled and run.
  *
- * A contract is untrusted input, and `(a+)+$` against a long string is a denial
- * of service with no network and no dependency in sight. Rather than pretend to
- * detect every catastrophic pattern, this refuses a conservative superset:
- * anything over the length bound, any lookaround or named group, and any
- * quantifier applied to a group that itself repeats or alternates. A refusal is
- * reported and makes the run `incomplete`; it is never a quiet pass.
+ * A contract is untrusted input, and a regular expression is the one thing in
+ * this package that cannot be stopped once it has started: the engine does not
+ * yield, so a deadline checked around the call never fires during it. The bound
+ * therefore has to be decided *before* the match, by refusing every shape this
+ * analyser cannot vouch for:
+ *
+ * - anything over the length bound;
+ * - any lookaround, named group, back reference, control escape or Unicode
+ *   property escape;
+ * - any quantifier applied to a group that itself repeats or alternates --
+ *   `(a+)+`, the textbook exponential;
+ * - any two variable-length parts of one sequence whose boundary is not forced
+ *   by a character neither of them can match -- `\d+\d+`, which is just as
+ *   catastrophic and has no nesting in it at all;
+ * - anything that does not compile as a Unicode regular expression.
+ *
+ * The refusal is conservative: safe patterns are refused too, and that is
+ * reported as `schema-pattern-refused`, an unchecked value and an `incomplete`
+ * run. It is never a quiet pass. `test/pattern-bound.test.mjs` measures the
+ * whole of it against patterns that would otherwise run for minutes.
  */
 export function checkPattern(source) {
   if (typeof source !== 'string') return { ok: false, reason: 'a pattern must be a string' }
@@ -171,47 +620,19 @@ export function checkPattern(source) {
     return { ok: false, reason: `a pattern may be at most ${MAX_PATTERN_LENGTH} characters and this one is ${source.length}` }
   }
 
-  const groupStarts = []
-  let inClass = false
-  for (let index = 0; index < source.length; index += 1) {
-    const character = source[index]
-    if (character === '\\') {
-      index += 1
-      continue
-    }
-    if (inClass) {
-      if (character === ']') inClass = false
-      continue
-    }
-    if (character === '[') {
-      inClass = true
-      continue
-    }
-    if (character === '(') {
-      const nonCapturing = source[index + 1] === '?' && source[index + 2] === ':'
-      if (source[index + 1] === '?' && !nonCapturing) {
-        return { ok: false, reason: 'lookaround, named groups and other extended group forms are outside the supported subset' }
-      }
-      // The body starts after "(?:" for a non-capturing group, so its own
-      // opener is not mistaken for a quantifier inside it.
-      groupStarts.push(nonCapturing ? index + 3 : index + 1)
-      continue
-    }
-    if (character === ')') {
-      const bodyStart = groupStarts.pop()
-      if (bodyStart === undefined) return { ok: false, reason: 'the pattern has an unbalanced group' }
-      if (QUANTIFIERS.has(source[index + 1] ?? '') && repeatsOrAlternates(source.slice(bodyStart, index))) {
-        return { ok: false, reason: 'a quantifier is applied to a group that itself repeats or alternates, which can backtrack catastrophically' }
-      }
-    }
-  }
-  if (groupStarts.length > 0) return { ok: false, reason: 'the pattern has an unbalanced group' }
+  const state = { source, index: 0, reason: undefined }
+  const branches = parseAlternation(state)
+  if (branches === null) return { ok: false, reason: state.reason ?? NOT_COMPILABLE }
+  if (state.index !== source.length) return { ok: false, reason: 'the pattern has an unbalanced group' }
+
+  const refusal = analyseBranches(branches)
+  if (refusal !== null) return { ok: false, reason: refusal }
 
   let regex
   try {
     regex = new RegExp(source, 'u')
   } catch {
-    return { ok: false, reason: 'the pattern did not compile as a Unicode regular expression' }
+    return { ok: false, reason: NOT_COMPILABLE }
   }
   return { ok: true, regex }
 }

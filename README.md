@@ -158,9 +158,18 @@ Reported rather than ignored: `allOf`, `anyOf`, `oneOf`, `not`, `if`/`then`/`els
 tuple `items`, schema-valued `additionalProperties`, boolean schemas, any other dialect, any other
 format.
 
-A `pattern` is refused rather than compiled when it is over 200 characters, uses lookaround, or
-applies a quantifier to a group that itself repeats or alternates — a contract is untrusted input,
-and `^(a+)+$` is a denial of service with no network in sight. The refusal is conservative and is
+A `pattern` is refused rather than compiled when it is over 200 characters, uses lookaround, a back
+reference or a property escape, applies a quantifier to a group that itself repeats or alternates,
+or puts two variable-length parts side by side with nothing between them to fix the boundary — a
+contract is untrusted input, and `^(a+)+$` is a denial of service with no network in sight. So is
+`^\d+\d+...\d+$`, which has no nesting in it at all and ran for 109 seconds against a
+forty-character string before that last rule existed.
+
+A regular expression cannot be stopped once it has started — the engine does not yield, so a
+deadline checked around the call never fires during it — which is why the bound is a refusal
+decided before the match rather than a timeout around it. `test/pattern-bound.test.mjs` measures it:
+it drives each hostile shape through the real binary and fails if the run has not answered.
+`[A-Z]+\d+` and `\w+@\w+\.\w+` are still compiled and applied. The refusal is conservative and is
 reported as unchecked rather than guessed at.
 
 ## Exit codes
