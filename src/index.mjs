@@ -1007,9 +1007,15 @@ async function finish(report, options, identities, label) {
   }
 
   if (clash !== null) {
+    // The report is rebuilt around the refusal rather than amended, and every
+    // row goes back through `record` on the way in -- the one place that raises
+    // `incomplete` from the one list. Pushing straight onto `collector.rows`
+    // here left the flag carried by a single assignment below, and a rebuild
+    // that drops it reports "the policy failed" for a run that never read its
+    // contract. The verdict a run reached is not the rebuild's to soften.
     const collector = createCollector(label)
     for (const finding of report.findings) {
-      collector.rows.push({
+      record(collector, {
         file: finding.location.file,
         pointer: finding.location.pointer,
         ruleId: finding.ruleId,
@@ -1018,8 +1024,11 @@ async function finish(report, options, identities, label) {
         suggestion: finding.suggestion,
       })
     }
-    collector.incomplete = report.status === 'incomplete'
-    collector.rows.push({
+    // Redundant while every `incomplete` status is raised by a rule in the one
+    // list -- which `record` above has just re-applied -- and kept because the
+    // verdict of the run is the authority here, not a re-derivation of it.
+    if (report.status === 'incomplete') collector.incomplete = true
+    record(collector, {
       file: label,
       pointer: '/',
       ruleId: 'output-destination-refused',
