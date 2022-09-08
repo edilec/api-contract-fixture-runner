@@ -115,6 +115,20 @@ test('the contract refuses the shapes that would make a verdict meaningless', ()
   }
 })
 
+test('the declared dialect must be a string, and a string is not enough', () => {
+  const wrongType = structuredClone(goodContract)
+  wrongType.jsonSchemaDialect = 12345
+  const result = validateContract(wrongType, limits)
+  assert.equal(result.ok, false)
+  assert.equal(result.errors.some((row) => row.pointer === '/jsonSchemaDialect'), true)
+
+  // The shape check only says it is a string. Whether it names a dialect this
+  // tool implements is decided in the run, where it can stop one.
+  const wrongDialect = structuredClone(goodContract)
+  wrongDialect.jsonSchemaDialect = 'http://json-schema.org/draft-07/schema#'
+  assert.equal(validateContract(wrongDialect, limits).ok, true)
+})
+
 test('two operations may not share an id', () => {
   const clashing = structuredClone(goodContract)
   clashing.operations.push(structuredClone(goodContract.operations[0]))

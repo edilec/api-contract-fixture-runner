@@ -237,6 +237,14 @@ export function validateContract(document, limits) {
   if (Object.hasOwn(document, 'title') && typeof document.title !== 'string') {
     fail(errors, '/title', 'A contract title must be a string.', describeValue(document.title, 40))
   }
+  if (Object.hasOwn(document, 'jsonSchemaDialect') && typeof document.jsonSchemaDialect !== 'string') {
+    fail(
+      errors,
+      '/jsonSchemaDialect',
+      'A contract "jsonSchemaDialect" must be a string naming the dialect its schemas are written in.',
+      describeValue(document.jsonSchemaDialect, 60),
+    )
+  }
   if (Object.hasOwn(document, 'components')) {
     if (requireRecord(document.components, errors, '/components', 'The "components" section')) {
       closedKeys(document.components, ['schemas'], '/components', unknown)

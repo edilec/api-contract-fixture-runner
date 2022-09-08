@@ -148,6 +148,11 @@ value is left unchecked, the case is not counted as checked, and the run is `inc
 never treated as satisfied, because "we did not check it" and "it is correct" are different answers
 and only one of them is honest.
 
+The dialect is `https://json-schema.org/draft/2020-12/schema` and nothing else — as a per-schema
+`$schema`, or as the contract-level `jsonSchemaDialect` that stands for all of them. A contract
+declaring another dialect is told so and the run is `incomplete`; it is not a key this tool accepts
+and then ignores.
+
 Implemented: `$ref` (local), `type` (including an array of types and `nullable`), `enum`, `const`,
 `properties`, `required`, `additionalProperties: false`, `items`, `minItems`, `maxItems`,
 `uniqueItems`, `minLength`, `maxLength`, `pattern`, `format` (`date`, `date-time`, `email`, `ipv4`,

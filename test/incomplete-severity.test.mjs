@@ -260,6 +260,35 @@ test('schema-dialect-unsupported: the run is incomplete and the rule prints as a
   })
 })
 
+test('schema-dialect-unsupported: a dialect the contract declares for itself stops the run too', async () => {
+  await withBase(async (base) => {
+    const contract = contractWithBody({ type: 'object' })
+    contract.jsonSchemaDialect = 'http://json-schema.org/draft-07/schema#'
+    await writeAll(base, contract, fixturesWithBody({ a: 1 }))
+    const { code, report, stderr } = await cli(base, [])
+
+    assert.equal(code, 2)
+    assert.equal(report.status, 'incomplete')
+    assert.equal(report.summary.errors, 2)
+    assert.equal(report.summary.checked, 0)
+    assert.equal(stderr.includes('ERROR   contract.json/jsonSchemaDialect schema-dialect-unsupported'), true)
+  })
+})
+
+test('the dialect this tool does implement, declared for the whole contract, checks the fixtures', async () => {
+  await withBase(async (base) => {
+    const contract = contractWithBody({ type: 'object', required: ['a'], properties: { a: { type: 'integer' } } })
+    contract.jsonSchemaDialect = 'https://json-schema.org/draft/2020-12/schema'
+    await writeAll(base, contract, fixturesWithBody({ a: 1 }))
+    const { code, report } = await cli(base, ['--json'])
+
+    assert.equal(code, 0)
+    assert.equal(report.status, 'pass')
+    assert.equal(report.summary.checked, 1)
+    assert.equal(report.summary.passed, 1)
+  })
+})
+
 test('schema-format-unsupported: the run is incomplete and the rule prints as an error', async () => {
   await withBase(async (base) => {
     await writeAll(

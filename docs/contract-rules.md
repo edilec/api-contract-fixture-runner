@@ -54,7 +54,7 @@ Each of these sets `incomplete`, so the run exits `2`.
 | `document-invalid` | `error` | A document does not match its schema below. |
 | `document-unknown-key` | `error` | A document declares a key its schema does not define. A typo is refused, never ignored. |
 | `document-outside-root` | `error` | A declared document resolves outside the plan's directory. Refused unread; none of its content reaches the report. |
-| `schema-dialect-unsupported` | `error` | A schema declares a `$schema` outside the supported dialect. |
+| `schema-dialect-unsupported` | `error` | A schema declares a `$schema`, or the contract declares a `jsonSchemaDialect`, outside the supported dialect. |
 | `schema-keyword-unsupported` | `error` | A schema uses a keyword or construct outside the supported subset. |
 | `schema-format-unsupported` | `error` | A schema declares a `format` this tool does not implement. |
 | `schema-pattern-refused` | `error` | A `pattern` was refused rather than compiled. See [Patterns](#patterns). |
@@ -120,6 +120,7 @@ stops: a one-character typo must not quietly turn a real failure into a green ru
 {
   "contractVersion": "1",
   "title": "Orders API",
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
   "components": { "schemas": { "Order": { "type": "object" } } },
   "operations": [
     {
@@ -145,6 +146,12 @@ stops: a one-character typo must not quietly turn a real failure into a green ru
 }
 ```
 
+- `jsonSchemaDialect` is optional and names the dialect every schema in the document is written
+  in. It must be `https://json-schema.org/draft/2020-12/schema`; any other value raises
+  `schema-dialect-unsupported` and stops the run before a fixture is checked, because it governs
+  every schema in the document rather than one value. A per-schema `$schema` is checked the same
+  way, where it stands. A declared key that is read only sometimes is the worst of both: this one
+  decides the run.
 - `method` is one of `DELETE`, `GET`, `HEAD`, `OPTIONS`, `PATCH`, `POST`, `PUT`, `TRACE`.
 - `path` may carry `{name}` template segments, which match any one non-empty segment.
 - `status` is an integer from 100 to 599, and an operation may declare each status once.
@@ -208,7 +215,10 @@ an API contract. It is not a general validator and does not pretend to be one. T
 it rather than delegating is that the boundary is **visible**: anything outside the subset is
 reported and makes the run `incomplete`. It is never treated as satisfied.
 
-**Dialect.** `$schema`, when present, must be `https://json-schema.org/draft/2020-12/schema`.
+**Dialect.** `$schema`, when present on a schema, must be
+`https://json-schema.org/draft/2020-12/schema`, and so must the contract-level `jsonSchemaDialect`
+that stands for all of them. Either one naming another dialect raises `schema-dialect-unsupported`:
+the document-level key stops the run, the per-schema one leaves that value unchecked.
 
 **Keywords implemented.** `$ref`, `$schema`, `additionalProperties` (boolean only), `const`,
 `enum`, `exclusiveMaximum`, `exclusiveMinimum`, `format`, `items` (single schema),

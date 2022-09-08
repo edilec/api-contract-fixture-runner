@@ -44,7 +44,7 @@ import {
 } from './documents.mjs'
 import { classifyTarget, createInProcessMock } from './mock.mjs'
 import { INCOMPLETE_RULES, compareFindings, createFinding, sortFindings } from './rules.mjs'
-import { isRecord, jsonEqual, validateValue } from './schema.mjs'
+import { SUPPORTED_DIALECTS, isRecord, jsonEqual, validateValue } from './schema.mjs'
 import { decodeUtf8, describeValue, exceedsDepth, jsonByteLength, pointerAppend, sanitize } from './text.mjs'
 
 export const TOOL_ID = 'api-contract-fixture-runner'
@@ -436,6 +436,29 @@ export async function runPlan(rawPlan, options = {}) {
   }
 
   const contract = contractDocument.value
+
+  /**
+   * The dialect the contract declares for its own schemas.
+   *
+   * A key a document may declare and the tool never reads is worse than a key
+   * it refuses: `document-unknown-key` catches the typo, and a *declared* key
+   * that is quietly dropped lets a contract assert a dialect this validator
+   * does not implement and still reach a clean pass. It governs every schema in
+   * the document, so an unsupported one stops the run here rather than leaving
+   * a gap per value -- nothing in the document was checked against it.
+   */
+  if (Object.hasOwn(contract, 'jsonSchemaDialect') && !SUPPORTED_DIALECTS.includes(contract.jsonSchemaDialect)) {
+    record(collector, {
+      file: contractDocument.label,
+      pointer: '/jsonSchemaDialect',
+      ruleId: 'schema-dialect-unsupported',
+      message: `This tool implements a bounded subset of ${SUPPORTED_DIALECTS[0]} only, and this contract declares that its schemas are written in another dialect, so none of them were applied.`,
+      evidence: describeValue(contract.jsonSchemaDialect, 80),
+      suggestion: `Declare "jsonSchemaDialect": "${SUPPORTED_DIALECTS[0]}", or remove the key.`,
+    })
+    return haltedReport(label, limits, collector.rows)
+  }
+
   const fixtures = fixturesDocument.value
   const components = isRecord(contract.components?.schemas) ? contract.components.schemas : {}
 
