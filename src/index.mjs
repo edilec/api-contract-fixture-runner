@@ -876,6 +876,42 @@ function checkLiveCall(fixture, operation, base, components, limits, mock, emit,
     }
   }
 
+  /**
+   * The headers the mock answered, against the ones the fixture expects.
+   *
+   * `mock.routes[].headers` is a key the plan may declare, so it is a key that
+   * has to decide something: a stub that omits the `Location` the contract
+   * marks `required`, or answers a different one, is exactly the disagreement
+   * this run exists to find. Presence and value both, because a header whose
+   * value is wrong is not a header that is there.
+   *
+   * Where the fixture expects no headers there is nothing to compare against --
+   * a contract-required header the fixture does not expect has already been
+   * reported as `response-header-missing` against the fixture itself.
+   */
+  if (Object.hasOwn(fixture.expect, 'headers')) {
+    const answered = headerNames(actual.headers)
+    for (const name of Object.keys(fixture.expect.headers)) {
+      const value = answered.get(name.toLowerCase())
+      if (value === undefined) {
+        emit({
+          pointer: pointerAppend(base, 'expect', 'headers'),
+          ruleId: 'live-header-mismatch',
+          message: 'The fixture expects a response header the in-process mock answered without.',
+          evidence: sanitize(name, 80),
+          suggestion: 'Add the header to the mock route, or stop expecting it in the fixture.',
+        })
+      } else if (value !== fixture.expect.headers[name]) {
+        emit({
+          pointer: pointerAppend(base, 'expect', 'headers'),
+          ruleId: 'live-header-mismatch',
+          message: `The in-process mock answered a different value for the "${sanitize(name, 40)}" header than the fixture expects.`,
+          evidence: `expected ${describeValue(fixture.expect.headers[name], 40)}, answered ${describeValue(value, 40)}`,
+        })
+      }
+    }
+  }
+
   const bodyPointer = pointerAppend(base, 'expect', 'body')
   if (Object.hasOwn(fixture.expect, 'body')) {
     if (!actual.hasBody) {

@@ -36,6 +36,7 @@ says.
 | `response-body-mismatch` | `error` | The body the fixture expects fails the schema declared for that status, is absent where one is declared, or is present where none is. Carries a JSON Pointer. |
 | `live-status-mismatch` | `error` | The in-process mock answered a different status than the fixture expects. |
 | `live-content-type-mismatch` | `error` | The in-process mock answered a different content type than the fixture expects. |
+| `live-header-mismatch` | `error` | The in-process mock answered without a response header the fixture expects, or with a different value for one. The header name is in `evidence`. |
 | `live-body-mismatch` | `error` | The in-process mock answered a body the fixture does not expect, or one that fails the contract schema for the status it actually returned. Carries a JSON Pointer per differing field. |
 | `duplicate-case-id` | `error` | Two fixture cases declare the same id, so their results cannot be told apart. |
 | `output-destination-refused` | `error` | The `--out` destination is the same file as an input of the run. Nothing was written; the input is intact. |
@@ -289,8 +290,16 @@ What the live call compares:
 
 - the mock's status against `expect.status`;
 - its content type against `expect.contentType`, when the fixture declares one;
+- its headers against `expect.headers`, when the fixture declares any: every header the fixture
+  names must be answered, with an equal value. Names are matched case-insensitively and values
+  exactly. Where the fixture names no headers there is nothing to compare against, and a
+  contract-`required` header the fixture does not expect has already been reported against the
+  fixture as `response-header-missing`;
 - its body against `expect.body` field by field, when the fixture declares one — and against the
   contract schema for the status the mock actually returned, when the fixture does not.
+
+`mock.routes[].headers` is what the mock answers with, and it is read: a route that omits a header
+its fixture expects, or answers a different value, fails the run.
 
 The fixture has already been checked against the contract, so an implementation that matches its
 fixture matches the contract.
@@ -382,8 +391,10 @@ a subject and failed to obtain evidence about it, which is exactly what `incompl
 - **Anything about query parameters, cookies, authentication, rate limits, pagination, streaming
   bodies, multipart bodies, or any body that is not JSON.** None of these is checked, and a fixture
   that tries to smuggle a query string into `request.path` is refused rather than half-checked.
-- **Anything about response headers beyond their presence.** A `required` response header the
-  fixture does not expect is reported; the value of one that is present is not checked.
+- **Anything about response header values a contract could declare.** A contract says only whether
+  a response header is `required`, so a fixture is checked for its presence and nothing more. Header
+  *values* are compared only on the live path, where the fixture states one and the in-process mock
+  answers one.
 - **Anything about timing, ordering between cases, or state.** Each case is evaluated
   independently, and the mock has no memory between cases beyond the record of what it was asked.
 - **That a refused pattern is unsatisfiable or dangerous.** The refusal is conservative: some

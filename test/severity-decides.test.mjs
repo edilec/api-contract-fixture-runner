@@ -278,6 +278,85 @@ test('live-content-type-mismatch fails the run', async () => {
   assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/contentType live-content-type-mismatch'), true)
 })
 
+test('live-header-mismatch fails the run when the mock answers without the header', async () => {
+  const fixtures = fixtureWithOneCase()
+  fixtures.cases[0].expect.headers = { Location: '/things/1' }
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process',
+      baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'createThing', status: 201, contentType: 'application/json', body: { id: 'x' } }],
+    },
+  }
+  const { code, report, stderr } = await check(contractWithOneOperation(), fixtures, plan)
+
+  assert.equal(code, 1)
+  assert.equal(report.status, 'fail')
+  assert.equal(report.summary.errors, 1)
+  assert.equal(report.summary.failed, 1)
+  assert.equal(report.summary.liveCalls, 1)
+  assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/headers live-header-mismatch'), true)
+  assert.equal(stderr.includes('-- Location'), true)
+})
+
+test('live-header-mismatch fails the run when the mock answers a different value', async () => {
+  const fixtures = fixtureWithOneCase()
+  fixtures.cases[0].expect.headers = { Location: '/things/1' }
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process',
+      baseUrl: 'http://127.0.0.1:9099',
+      routes: [
+        {
+          operationId: 'createThing',
+          status: 201,
+          contentType: 'application/json',
+          headers: { location: '/completely/different' },
+          body: { id: 'x' },
+        },
+      ],
+    },
+  }
+  const { code, report, stderr } = await check(contractWithOneOperation(), fixtures, plan)
+
+  assert.equal(code, 1)
+  assert.equal(report.status, 'fail')
+  assert.equal(report.summary.errors, 1)
+  assert.equal(report.summary.failed, 1)
+  assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/headers live-header-mismatch'), true)
+  assert.equal(stderr.includes('expected "/things/1", answered "/completely/different"'), true)
+})
+
+test('a mock route that answers the header the fixture expects passes, whatever the case of its name', async () => {
+  const fixtures = fixtureWithOneCase()
+  fixtures.cases[0].expect.headers = { Location: '/things/1' }
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process',
+      baseUrl: 'http://127.0.0.1:9099',
+      routes: [
+        {
+          operationId: 'createThing',
+          status: 201,
+          contentType: 'application/json',
+          headers: { LOCATION: '/things/1' },
+          body: { id: 'x' },
+        },
+      ],
+    },
+  }
+  const { code, report } = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+
+  assert.equal(code, 0)
+  assert.equal(report.status, 'pass')
+  assert.equal(report.summary.errors, 0)
+  assert.equal(report.summary.passed, 1)
+  assert.equal(report.summary.liveCalls, 1)
+})
+
 test('live-body-mismatch fails the run', async () => {
   const plan = {
     call: true,

@@ -230,8 +230,10 @@ What this tool **cannot** conclude:
 - **Anything about query parameters, cookies, authentication, authorization, rate limits,
   pagination, streaming bodies, multipart bodies, or any body that is not JSON.** A fixture that
   tries to put a query string in `request.path` is refused rather than half-checked.
-- **Anything about response header values.** A `required` header the fixture does not expect is
-  reported; the value of one that is present is not checked.
+- **Anything about response header values a contract could declare.** A contract says only whether
+  a header is `required`, so a fixture is checked for presence and nothing more. Values are
+  compared only where two documents actually state one: `expect.headers` against what the
+  in-process mock answers, name-insensitively and value-exactly.
 - **Anything about timing, ordering between cases, or state.** Each case is evaluated
   independently.
 - **That a refused pattern is dangerous.** The refusal is deliberately conservative, and some safe

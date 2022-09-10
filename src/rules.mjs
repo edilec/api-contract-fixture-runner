@@ -35,6 +35,7 @@ export const RULE_SEVERITY = Object.freeze({
   'limit-schema-depth-exceeded': 'error',
   'live-body-mismatch': 'error',
   'live-content-type-mismatch': 'error',
+  'live-header-mismatch': 'error',
   'live-route-missing': 'error',
   'live-status-mismatch': 'error',
   'mock-not-declared': 'error',
@@ -68,7 +69,7 @@ export const SEVERITY_VALUES = Object.freeze(['error', 'warning', 'info'])
  * Every other error rule also sets the `incomplete` flag, so it exits 2
  * whatever its severity says, and `test/incomplete-severity.test.mjs` pins
  * those by the counted errors and the printed severity word instead. These
- * fifteen have no second line of defence: severity is the whole of it, and
+ * sixteen have no second line of defence: severity is the whole of it, and
  * `test/severity-decides.test.mjs` drives each one through the binary and pins
  * status `fail` and exit code 1.
  */
@@ -76,6 +77,7 @@ export const SEVERITY_DECIDES = Object.freeze([
   'duplicate-case-id',
   'live-body-mismatch',
   'live-content-type-mismatch',
+  'live-header-mismatch',
   'live-status-mismatch',
   'output-destination-refused',
   'request-body-mismatch',
