@@ -47,16 +47,39 @@ async function cli(base, args = []) {
   }
 }
 
-/** An operation id and a case id that both carry the hostile character. */
+/**
+ * An operation id and a case id that both carry the hostile character, in
+ * documents chosen so that both of them are **printed**.
+ *
+ * An earlier version of this helper produced findings that named neither id:
+ * every `stderr.includes(character) === false` below was then true because
+ * nothing had been written there to begin with, and half this file could not
+ * fail. The documents are now built so that the human report has to print both.
+ * `request-header-missing` names the operation, `duplicate-case-id` quotes the
+ * case id, and `operation-without-fixture` names a second operation that
+ * carries the character too -- and `SANITISED_OPERATION_ID` and
+ * `SANITISED_CASE_ID` are asserted present, so the day a message stops naming
+ * an id this test says so instead of quietly passing.
+ */
+const SANITISED_OPERATION_ID = 'get Thing'
+const SANITISED_CASE_ID = 'case one'
+
 async function runWithIdentifier(base, character) {
   const operationId = `get${character}Thing`
+  const caseId = `case${character}one`
   await writeFile(
     join(base, 'contract.json'),
     JSON.stringify({
       contractVersion: '1',
       operations: [
-        { id: operationId, method: 'GET', path: '/t', responses: [{ status: 200 }] },
-        { id: 'unexercised', method: 'GET', path: '/u', responses: [{ status: 200 }] },
+        {
+          id: operationId,
+          method: 'GET',
+          path: '/t',
+          request: { headers: { 'X-Required': { required: true } } },
+          responses: [{ status: 200 }],
+        },
+        { id: `unexercised${character}operation`, method: 'GET', path: '/u', responses: [{ status: 200 }] },
       ],
     }),
   )
@@ -65,12 +88,8 @@ async function runWithIdentifier(base, character) {
     JSON.stringify({
       fixtureVersion: '1',
       cases: [
-        {
-          id: `case${character}one`,
-          operationId,
-          request: { method: 'POST', path: '/t' },
-          expect: { status: 418 },
-        },
+        { id: caseId, operationId, request: { method: 'GET', path: '/t' }, expect: { status: 200 } },
+        { id: caseId, operationId, request: { method: 'GET', path: '/t' }, expect: { status: 200 } },
       ],
     }),
   )
@@ -87,6 +106,13 @@ test('every stripped class is removed when it arrives through an identifier', as
 
         assert.equal(stdout.includes(character), false, `U+${code.toString(16)} must not reach stdout (${range.name})`)
         assert.equal(stderr.includes(character), false, `U+${code.toString(16)} must not reach stderr (${range.name})`)
+
+        // Both ids did reach both streams, sanitised. Without this the two
+        // assertions above would hold for a report that printed neither.
+        assert.equal(stderr.includes(SANITISED_OPERATION_ID), true, `the operation id must be printed (${range.name})`)
+        assert.equal(stderr.includes(SANITISED_CASE_ID), true, `the case id must be printed (${range.name})`)
+        assert.equal(stdout.includes(SANITISED_OPERATION_ID), true, `the operation id must be reported (${range.name})`)
+        assert.equal(stdout.includes(SANITISED_CASE_ID), true, `the case id must be reported (${range.name})`)
       })
     }
   }
@@ -96,6 +122,10 @@ test('a newline in a case id cannot forge a line in the human report', async () 
   await withBase(async (base) => {
     const { stderr } = await runWithIdentifier(base, NEWLINE)
     const lines = stderr.trimEnd().split(NEWLINE)
+
+    // The forged line would have to come from somewhere: both ids are printed.
+    assert.equal(stderr.includes(SANITISED_OPERATION_ID), true)
+    assert.equal(stderr.includes(SANITISED_CASE_ID), true)
 
     // Four summary lines, then exactly one line per finding. A forged newline
     // would show up here as an extra line that starts with none of the words a
@@ -112,6 +142,8 @@ test('a right-to-left override in an identifier does not reverse the report', as
     const { stdout, stderr } = await runWithIdentifier(base, String.fromCharCode(0x202e))
     assert.equal(stdout.includes(String.fromCharCode(0x202e)), false)
     assert.equal(stderr.includes(String.fromCharCode(0x202e)), false)
+    assert.equal(stderr.includes(SANITISED_OPERATION_ID), true)
+    assert.equal(stderr.includes(SANITISED_CASE_ID), true)
   })
 })
 
