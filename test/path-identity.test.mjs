@@ -136,3 +136,40 @@ test('a destination that does not exist yet is created without complaint', async
     assert.equal(JSON.parse(await readFile(out, 'utf8')).status, 'pass')
   })
 })
+
+test('a destination the run cannot write is reported, and the evidence it computed is not thrown away', async () => {
+  await withBase(async (base) => {
+    await seed(base)
+    // A directory that does not exist. The run has already checked everything
+    // by the time the copy is attempted, and throwing that away leaves a user
+    // with an exit code, an empty stdout and no report -- for a mistyped path.
+    const { code, stdout } = await cli(base, ['--out', join(base, 'no', 'such', 'report.json'), '--json'])
+
+    assert.equal(code, 1)
+    const report = JSON.parse(stdout)
+    assert.equal(report.status, 'fail')
+    assert.equal(report.summary.checked, 1)
+
+    const refusal = report.findings.find((finding) => finding.ruleId === 'output-destination-refused')
+    assert.notEqual(refusal, undefined)
+    assert.equal(refusal.evidence, 'ENOENT')
+    assert.equal(refusal.location.file, 'plan.json')
+
+    // The host path is in the error and never in the report.
+    assert.equal(stdout.includes(base), false)
+  })
+})
+
+test('an unwritable destination leaves an incomplete run incomplete', async () => {
+  await withBase(async (base) => {
+    await seed(base)
+    await writeFile(join(base, 'contract.json'), 'not json')
+    const { code, stdout } = await cli(base, ['--out', join(base, 'no', 'such', 'report.json'), '--json'])
+
+    assert.equal(code, 2)
+    const report = JSON.parse(stdout)
+    assert.equal(report.status, 'incomplete')
+    assert.equal(report.findings.some((finding) => finding.ruleId === 'output-destination-refused'), true)
+    assert.equal(report.findings.some((finding) => finding.ruleId === 'document-not-json'), true)
+  })
+})

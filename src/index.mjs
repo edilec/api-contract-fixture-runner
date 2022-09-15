@@ -1045,6 +1045,47 @@ export async function runPlanFile(planPath, options = {}) {
 }
 
 /**
+ * Rebuild the report around a refusal to write the `--out` copy.
+ *
+ * The refusal does not amend the report, it rebuilds it -- and every row goes
+ * back through `record` on the way in, the one place that raises `incomplete`
+ * from the one list. Pushing straight onto `collector.rows` here left the flag
+ * carried by a single assignment, and a rebuild that drops it reports "the
+ * policy failed" for a run that never read its contract. The verdict a run
+ * reached is not the rebuild's to soften.
+ */
+function reportWithOutputRefusal(report, options, label, refusal) {
+  const collector = createCollector(label)
+  for (const finding of report.findings) {
+    record(collector, {
+      file: finding.location.file,
+      pointer: finding.location.pointer,
+      ruleId: finding.ruleId,
+      message: finding.message,
+      evidence: finding.evidence,
+      suggestion: finding.suggestion,
+    })
+  }
+  // Redundant while every `incomplete` status is raised by a rule in the one
+  // list -- which `record` above has just re-applied -- and kept because the
+  // verdict of the run is the authority here, not a re-derivation of it.
+  if (report.status === 'incomplete') collector.incomplete = true
+  record(collector, { file: label, pointer: '/', ruleId: 'output-destination-refused', ...refusal })
+
+  const limits = applyLimits(options.limits ?? {})
+  return buildReport(collector, {
+    cases: report.summary.cases,
+    checked: report.summary.checked,
+    passed: report.summary.passed,
+    failed: report.summary.failed,
+    skipped: report.summary.skipped,
+    operations: report.summary.operations,
+    exercised: report.summary.exercised,
+    liveCalls: report.summary.liveCalls,
+  }, report.run, limits)
+}
+
+/**
  * Write the optional `--out` copy, refusing a destination that is an input.
  *
  * The comparison is on `dev` and `ino`, not on the real path. A symbolic link
@@ -1052,6 +1093,13 @@ export async function runPlanFile(planPath, options = {}) {
  * names for one inode resolve to two different real paths, a real-path
  * comparison sees two different files, and the run writes its report over its
  * own contract. The inode is the identity.
+ *
+ * A destination that cannot be written -- a directory that does not exist, a
+ * permission the run does not have -- is reported the same way rather than
+ * thrown. The report had already been computed, and discarding a whole run's
+ * evidence because a copy of it could not be filed is a worse answer than
+ * printing the evidence and saying the copy was not made. The error *code*
+ * reaches the report; the host path never does.
  */
 async function finish(report, options, identities, label) {
   if (options.out === undefined) return report
@@ -1066,49 +1114,22 @@ async function finish(report, options, identities, label) {
   }
 
   if (clash !== null) {
-    // The report is rebuilt around the refusal rather than amended, and every
-    // row goes back through `record` on the way in -- the one place that raises
-    // `incomplete` from the one list. Pushing straight onto `collector.rows`
-    // here left the flag carried by a single assignment below, and a rebuild
-    // that drops it reports "the policy failed" for a run that never read its
-    // contract. The verdict a run reached is not the rebuild's to soften.
-    const collector = createCollector(label)
-    for (const finding of report.findings) {
-      record(collector, {
-        file: finding.location.file,
-        pointer: finding.location.pointer,
-        ruleId: finding.ruleId,
-        message: finding.message,
-        evidence: finding.evidence,
-        suggestion: finding.suggestion,
-      })
-    }
-    // Redundant while every `incomplete` status is raised by a rule in the one
-    // list -- which `record` above has just re-applied -- and kept because the
-    // verdict of the run is the authority here, not a re-derivation of it.
-    if (report.status === 'incomplete') collector.incomplete = true
-    record(collector, {
-      file: label,
-      pointer: '/',
-      ruleId: 'output-destination-refused',
+    return reportWithOutputRefusal(report, options, label, {
       message: 'The requested output destination is the same file as an input of this run, so nothing was written and the input is intact.',
       evidence: `same inode as ${clash.label}`,
       suggestion: 'Write the report somewhere outside the inputs of the run.',
     })
-    const limits = applyLimits(options.limits ?? {})
-    return buildReport(collector, {
-      cases: report.summary.cases,
-      checked: report.summary.checked,
-      passed: report.summary.passed,
-      failed: report.summary.failed,
-      skipped: report.summary.skipped,
-      operations: report.summary.operations,
-      exercised: report.summary.exercised,
-      liveCalls: report.summary.liveCalls,
-    }, report.run, limits)
   }
 
-  await writeFile(destination, `${serializeReport(report)}\n`)
+  try {
+    await writeFile(destination, `${serializeReport(report)}\n`)
+  } catch (error) {
+    return reportWithOutputRefusal(report, options, label, {
+      message: `The report could not be written to the requested output destination: ${error.code ?? 'unknown error'}. The report is on stdout and nothing was written.`,
+      evidence: error.code ?? 'unknown error',
+      suggestion: 'Create the directory the destination is in, or choose a destination this run can write.',
+    })
+  }
   return report
 }
 

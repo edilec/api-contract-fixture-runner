@@ -34,7 +34,9 @@ Options:
   --out FILE               Also write the JSON report to FILE. A destination
                            that is the same file as an input -- by path, by
                            symlink, or by hard link -- is refused and nothing
-                           is written.
+                           is written. A destination that cannot be written at
+                           all is reported the same way, and the report still
+                           goes to stdout rather than being thrown away.
   --json                   Suppress the human summary on stderr
   --max-document-bytes N   Maximum bytes per document (default 1048576)
   --max-operations N       Maximum contract operations (default 200)

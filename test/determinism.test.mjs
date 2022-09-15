@@ -51,12 +51,46 @@ test('the locale environment does not change a byte of the output', async () => 
   assert.equal(posix.stdout, turkish.stdout)
 })
 
+/**
+ * Anything that looks like a reading of a wall clock.
+ *
+ * The earlier spelling demanded exactly three fractional digits and a literal
+ * `Z`, so a clock printed to whole seconds, to a local offset, or as an epoch
+ * number walked straight past it. A negative assertion is only as good as its
+ * detector, so the shapes this one must catch are asserted below before it is
+ * pointed at the report.
+ */
+const WALL_CLOCK = /\d{4}-\d{2}-\d{2}[Tt ]\d{2}:\d{2}|(?<!\d)1[5-9]\d{8}(\d{3})?(?!\d)/
+
+test('the wall-clock detector catches the shapes a clock is printed in', () => {
+  for (const shape of [
+    '"generatedAt":"2026-02-03T09:15:00.123Z"',
+    '"generatedAt":"2026-02-03T09:15:00Z"',
+    '"generatedAt":"2026-02-03T09:15:00+05:30"',
+    '"generatedAt":"2026-02-03T09:15"',
+    '"generatedAt":"2026-02-03 09:15:00"',
+    '"startedAt":1770000000000',
+    '"startedAt":1770000000',
+  ]) {
+    assert.equal(WALL_CLOCK.test(shape), true, shape)
+  }
+
+  for (const shape of [
+    '"id":"6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa"',
+    '"status":201,"maxBodyBytes":1048576',
+    '"pointer":"/cases/10/expect/body"',
+    '"placedAt":"2026-02-03"',
+  ]) {
+    assert.equal(WALL_CLOCK.test(shape), false, shape)
+  }
+})
+
 test('the report carries no timestamp, and nothing in it changes between runs', async () => {
   const { stdout } = await cli(['--plan', 'examples/clean/plan.json', '--json'])
   const report = JSON.parse(stdout)
   const serialized = JSON.stringify(report)
 
-  assert.equal(/\b20\d\d-\d\d-\d\dT\d\d:\d\d:\d\d\.\d\d\dZ/.test(serialized), false, 'no wall-clock timestamp')
+  assert.equal(WALL_CLOCK.test(serialized), false, 'no wall-clock timestamp')
   assert.equal(Object.hasOwn(report, 'generatedAt'), false)
   assert.equal(Object.hasOwn(report.summary, 'durationMs'), false)
 })

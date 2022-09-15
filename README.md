@@ -131,6 +131,11 @@ the supported schema subset, and the limits.
 `--out` writes the same bytes stdout carried to a file, for archiving from CI. A destination that is
 the same file as an input of the run is refused, and nothing is written.
 
+A destination that cannot be written at all — a directory that does not exist, a permission the run
+does not have — is reported as the same rule rather than thrown: the run had already checked
+everything, and discarding a whole report because a copy of it could not be filed is the worse
+answer. The error code reaches the report; the host path never does.
+
 The comparison is on `dev` and `ino`, not on the real path. `realpath` resolves a symbolic link, but
 a **hard link has no target**: two names for one inode resolve to two different real paths, a
 real-path comparison sees two different files, and the run writes its report over its own contract.
