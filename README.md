@@ -204,7 +204,7 @@ unit, so `Z` precedes `a` and `a-b` precedes `a_b` on every machine.
 That ordering is pinned by what the tool emits, not by a grep over its own source: each of the six
 ordering sites is driven through the real binary with values whose collation order genuinely
 disagrees with their code-unit order. The one site whose alphabet makes both orders identical is
-proved equivalent by enumerating all 1560 ordered pairs of the real rule ids rather than left
+proved equivalent by enumerating all 1640 ordered pairs of the real rule ids rather than left
 unpinned.
 
 Severity is pinned the same way. `test/severity-decides.test.mjs` and

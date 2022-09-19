@@ -20,9 +20,20 @@ All notable changes to this project are documented in this file.
   2020-12 — no dependency, and a visible boundary: a keyword, dialect, format,
   construct, reference or pattern outside the subset leaves the value unchecked,
   the case uncounted and the run `incomplete`, and is never treated as satisfied;
-- conservative refusal of a `pattern` rather than compilation of it, for a length
-  bound, lookaround, and any quantifier applied to a group that itself repeats or
-  alternates — a contract is untrusted input;
+- conservative refusal of a `pattern` rather than compilation of it — a contract
+  is untrusted input, and a regular expression cannot be stopped once it has
+  started, so the bound is decided *before* the match: a length bound,
+  lookaround, back references and property escapes, any quantifier applied to a
+  group that itself repeats or alternates, and any two variable-length parts of
+  one sequence whose boundary no character between them can fix. `[A-Z]+\d+` and
+  `\w+@\w+\.\w+` are compiled and applied; `\d+\d+`, `.*.*x` and forty adjacent
+  `\d?` are refused, unchecked, `incomplete`;
+- `jsonSchemaDialect` on the contract document, read rather than accepted and
+  dropped: it must name the one dialect this validator implements, and any other
+  value stops the run before a fixture is checked;
+- comparison of the headers the in-process mock answers against the ones the
+  fixture expects, `live-header-mismatch`, so `mock.routes[].headers` decides
+  something rather than decorating the plan;
 - calendar-correct `date` and `date-time` checking computed with arithmetic
   rather than a host date parser, so a leap day is judged identically on every
   machine and in every time zone;
@@ -46,7 +57,9 @@ All notable changes to this project are documented in this file.
 - an optional `--out` copy of the report, refused when its destination shares an
   inode with any input of the run — a hard link has no target for `realpath` to
   resolve, and a real-path comparison is exactly how a tool comes to write its
-  report over its own contract;
+  report over its own contract — and reported the same way, with the error code
+  and never the host path, when the destination cannot be written at all, so a
+  mistyped directory does not discard a report the run had already computed;
 - strict UTF-8 decoding with `TextDecoder('utf-8', { fatal: true })` for every
   byte source, the plan file included, so whether an input is decodable is the
   decoder's decision and never an inference drawn from the decoded text;
@@ -101,21 +114,30 @@ All notable changes to this project are documented in this file.
   expectation: each case writes its own documents, runs the real binary, and
   states its exit code, status, counted errors and printed severity word as
   literals at the assertion. The coordinated flip — the frozen table, the
-  documented catalog and every expectation in the tests, all at once — is caught
-  for all 38 error rules.
+  documented catalog and the behaviour-class list, all at once — is caught for
+  all 39 error rules, none surviving, each by the test that drives its own rule
+  through the binary rather than by a consistency check between declarations.
 - Ordering is pinned by what the tool emits. This tool has exactly six sites that
   order anything reaching output: the five keys of `compareFindings` and the
   unsupported-keyword list rendered into one finding. An English collator
   substituted at each of them in turn kills five, each caught by a fixture whose
   collation order and code-unit order genuinely disagree — `Z` against `a`,
   `a-b` against `a_b`. The sixth orders rule ids over a closed `[a-z0-9-]`
-  alphabet on which both orderings agree for all 1560 ordered pairs of the real
+  alphabet on which both orderings agree for all 1640 ordered pairs of the real
   ids, so substituting a collator there provably changes no output; that
   enumeration is in `test/finding-order.test.mjs`, and the site is recorded as an
   equivalent mutant rather than counted as coverage or left unmentioned.
 - Nothing is written over an input. The `--out` refusal compares inodes, and
   `test/path-identity.test.mjs` asserts both that a hard link's real path differs
-  from its input's and that the write was refused anyway.
+  from its input's and that the write was refused anyway. The refusal *rebuilds*
+  the report around itself, and every row goes back through the one place that
+  raises `incomplete`, so a run that never parsed its contract cannot come out
+  of that rebuild reporting that the policy merely failed.
+- The pattern bound is measured, not declared. `test/pattern-bound.test.mjs`
+  drives each catastrophic shape through the real binary and kills the child if
+  it has not answered within five seconds — `^\d+\d+...\d+$`, twenty adjacent
+  quantifiers with no nesting and no group in it, ran for 109 seconds against a
+  forty-character subject before the refusal covered it.
 - Each guarantee above was removed in turn and the failure watched: narrowing the
   strip set to leave C1 or the bidi overrides through, dropping a rule from the
   list that raises `incomplete`, replacing real-path containment with one that
@@ -123,9 +145,17 @@ All notable changes to this project are documented in this file.
   refusal, decoding leniently, dropping the vacuous-pass finding, ignoring
   unknown document keys, allowing any declared mock target, failing every `4xx`
   fixture for being a `4xx`, and unwiring the plan's limits from the run. All
-  twelve were caught. Where a substitution provably changes no output it is
+  twelve were caught. Since then: deleting the one line that carried the
+  `incomplete` flag through the `--out` rebuild (which the whole suite had
+  missed), leaving the mock's answered headers unread, ignoring the contract's
+  declared dialect, stripping nothing at all, and widening the pattern analyser
+  back to the scanner that compiled `\d+\d+` — each was applied, watched to
+  fail, and fixed. Where a substitution provably changes no output it is
   recorded as an equivalent mutant, with the enumeration that proves it, rather
-  than counted as coverage.
+  than counted as coverage: the rule-id ordering site, and — once every row of
+  the `--out` rebuild goes back through `record` — the assignment that raises
+  `incomplete` explicitly there, which no fixture can now distinguish because
+  every status the rebuild can inherit is raised by a rule in the one list.
 
 ### Notes
 
