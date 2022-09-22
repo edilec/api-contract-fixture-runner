@@ -7,7 +7,7 @@ import test from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
-import { checkPattern } from '../src/schema.mjs'
+import { MAX_PATTERN_INPUT, checkPattern, validateValue } from '../src/schema.mjs'
 
 /**
  * The pattern bound, measured rather than asserted.
@@ -165,4 +165,45 @@ test('every hostile pattern in one contract still returns inside the bound, and 
   assert.equal(report.status, 'incomplete')
   assert.equal(report.findings.filter((finding) => finding.ruleId === 'schema-pattern-refused').length, HOSTILE.length)
   assert.equal(report.summary.checked, 0)
+})
+
+test('a value longer than the pattern bound is left unchecked, not matched', async () => {
+  /*
+   * The shape analyser refuses exponential patterns. It does not refuse
+   * polynomial ones, and it should not: `\w+@\w+\.\w+` is an ordinary, correct
+   * pattern. But it backtracks quadratically, so the cost lives in the INPUT,
+   * not the pattern -- 2.7 seconds at 65 kB, and past twelve minutes
+   * extrapolated to the hard maxBodyBytes cap.
+   *
+   * A deadline cannot catch it: the engine does not yield, so a time check
+   * around the call never runs during it. This asserts the bound that does
+   * hold, and asserts it by the clock as well as by the finding, because the
+   * whole point is that the work does not happen.
+   */
+  const schema = { type: 'string', pattern: '\\w+@\\w+\\.\\w+' }
+  const long = 'a'.repeat(MAX_PATTERN_INPUT + 1)
+
+  const started = process.hrtime.bigint()
+  const result = validateValue(schema, long)
+  const elapsedMs = Number(process.hrtime.bigint() - started) / 1e6
+
+  assert.equal(result.issues.length, 0, 'an unchecked value must not be reported as failing')
+  assert.equal(result.gaps.length, 1)
+  assert.equal(result.gaps[0].ruleId, 'schema-pattern-input-too-long')
+  assert.match(result.gaps[0].message, /not checked/)
+  assert.ok(elapsedMs < 100, `the pattern must not be run at all; took ${elapsedMs.toFixed(1)}ms`)
+})
+
+test('a value at the bound is still checked', () => {
+  // The bound is only honest if it is exclusive: one character shorter must
+  // behave normally, or the guard is hiding work rather than bounding it.
+  const schema = { type: 'string', pattern: '^[a-z]+$' }
+
+  const atBound = validateValue(schema, 'a'.repeat(MAX_PATTERN_INPUT))
+  assert.deepEqual(atBound.gaps, [])
+  assert.deepEqual(atBound.issues, [])
+
+  const failing = validateValue(schema, `${'a'.repeat(MAX_PATTERN_INPUT - 1)}1`)
+  assert.deepEqual(failing.gaps, [])
+  assert.equal(failing.issues.length, 1)
 })

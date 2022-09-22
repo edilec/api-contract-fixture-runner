@@ -637,6 +637,22 @@ export function checkPattern(source) {
   return { ok: true, regex }
 }
 
+/**
+ * The longest value a contract pattern is run against.
+ *
+ * Refusing catastrophic shapes bounds the EXPONENTIAL cases, not the polynomial
+ * ones, and a polynomial case is still a denial of service: `\\w+@\\w+\\.\\w+` --
+ * a pattern this tool documents as accepted and safe -- backtracks quadratically,
+ * taking 2.7 seconds against a 65 kB string and extrapolating past twelve minutes
+ * at the hard `maxBodyBytes` cap. A deadline cannot help: the regular expression
+ * engine does not yield, so a time check around the call never runs during it.
+ *
+ * The only bound that holds is on the input. Past this length the pattern is
+ * reported as not run, which makes the value unchecked and the run incomplete --
+ * never silently satisfied.
+ */
+export const MAX_PATTERN_INPUT = 4096
+
 const DAYS_IN_MONTH = Object.freeze([31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31])
 
 function isLeapYear(year) {
@@ -934,6 +950,15 @@ function checkString(ctx, schema, value, valuePointer, schemaPath) {
         `The contract pattern was refused rather than run: ${compiled.reason}. This value was not checked.`,
         `${schemaPath}: ${describeValue(schema.pattern, 60)}`,
         'Simplify the pattern, or express the constraint with minLength, maxLength, enum or format.',
+      )
+    } else if (value.length > MAX_PATTERN_INPUT) {
+      gap(
+        ctx,
+        'schema-pattern-input-too-long',
+        valuePointer,
+        `The value is ${value.length} characters, past the ${MAX_PATTERN_INPUT} the pattern is run against, so it was not checked. Backtracking is superlinear in the input, and a deadline cannot interrupt a running match.`,
+        `${schemaPath}: ${describeValue(schema.pattern, 60)}`,
+        'Constrain the value with maxLength, or check this field outside the contract.',
       )
     } else if (!compiled.regex.test(value)) {
       issue(ctx, valuePointer, `Expected a value matching the contract pattern.`, describeValue(value))

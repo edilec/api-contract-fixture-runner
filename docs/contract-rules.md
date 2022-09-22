@@ -58,6 +58,7 @@ Each of these sets `incomplete`, so the run exits `2`.
 | `schema-dialect-unsupported` | `error` | A schema declares a `$schema`, or the contract declares a `jsonSchemaDialect`, outside the supported dialect. |
 | `schema-keyword-unsupported` | `error` | A schema uses a keyword or construct outside the supported subset. |
 | `schema-format-unsupported` | `error` | A schema declares a `format` this tool does not implement. |
+| `schema-pattern-input-too-long` | `error` | A value was longer than the pattern is run against, so it was not checked. See [Patterns](#patterns). |
 | `schema-pattern-refused` | `error` | A `pattern` was refused rather than compiled. See [Patterns](#patterns). |
 | `schema-ref-unresolved` | `error` | A `$ref` is remote, malformed, or names a schema `components.schemas` does not define. |
 | `schema-ref-cycle` | `error` | A schema references itself. Recursive schemas are outside the subset. |
@@ -272,6 +273,19 @@ this refusal existed. `test/pattern-bound.test.mjs` measures the bound rather th
 drives each of these shapes through the real binary and kills the run if it has not answered.
 
 A refusal raises `schema-pattern-refused` and makes the run `incomplete`. It is never a quiet pass.
+
+### The input is bounded too
+
+Refusing catastrophic shapes bounds the exponential cases, not the polynomial ones — and a
+polynomial case is still a denial of service. `\w+@\w+\.\w+`, a pattern this tool accepts and
+documents as safe, backtracks quadratically: 2.7 seconds against a 65 kB string, and past twelve
+minutes extrapolated to the hard `maxBodyBytes` cap.
+
+A deadline cannot help. The regular expression engine does not yield, so a time check placed
+around the call never runs during it. The only bound that holds is on the input, so a pattern is
+run against at most **4096 characters**. A longer value raises
+`schema-pattern-input-too-long`, which leaves the value unchecked and the run `incomplete` —
+the same treatment as a refused pattern, for the same reason.
 
 ## The optional live call
 
