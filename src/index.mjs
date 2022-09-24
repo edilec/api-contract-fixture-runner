@@ -45,7 +45,7 @@ import {
 import { classifyTarget, createInProcessMock } from './mock.mjs'
 import { INCOMPLETE_RULES, compareFindings, createFinding, sortFindings } from './rules.mjs'
 import { SUPPORTED_DIALECTS, isRecord, jsonEqual, validateValue } from './schema.mjs'
-import { decodeUtf8, describeValue, exceedsDepth, jsonByteLength, pointerAppend, sanitize } from './text.mjs'
+import { decodeUtf8, describeValue, exceedsDepth, jsonByteLength, parseFailureDetail, pointerAppend, sanitize } from './text.mjs'
 
 export const TOOL_ID = 'api-contract-fixture-runner'
 export const REPORT_SCHEMA_VERSION = '1'
@@ -267,7 +267,7 @@ async function readDocument(collector, root, declared, limits, identities) {
       file: label,
       pointer: '/',
       ruleId: 'document-not-json',
-      message: `This document is not valid JSON: ${sanitize(error.message, 160)}.`,
+      message: `This document is not valid JSON: ${sanitize(parseFailureDetail(error), 160)}.`,
       suggestion: 'Validate the document with a JSON parser before re-running.',
     })
     return null
@@ -1020,7 +1020,7 @@ export async function runPlanFile(planPath, options = {}) {
     parsed = JSON.parse(decoded.text)
   } catch (error) {
     return finish(
-      await halt('document-not-json', `The plan file is not valid JSON: ${sanitize(error.message, 160)}.`, 'Validate the plan with a JSON parser before re-running.'),
+      await halt('document-not-json', `The plan file is not valid JSON: ${sanitize(parseFailureDetail(error), 160)}.`, 'Validate the plan with a JSON parser before re-running.'),
       options,
       identities,
       label,
@@ -1185,4 +1185,4 @@ export {
   matchesFormat,
   validateValue,
 } from './schema.mjs'
-export { STRIPPED_RANGES, byCodeUnit, decodeUtf8, isStripped, sanitize } from './text.mjs'
+export { STRIPPED_RANGES, byCodeUnit, decodeUtf8, isStripped, parseFailureDetail, sanitize } from './text.mjs'

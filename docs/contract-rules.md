@@ -51,7 +51,7 @@ Each of these sets `incomplete`, so the run exits `2`.
 | --- | --- | --- |
 | `document-unreadable` | `error` | A document could not be opened, or is not a regular file. |
 | `document-not-utf8` | `error` | A document is not valid UTF-8. Decided by the decoder, never inferred from decoded text. |
-| `document-not-json` | `error` | A document is not valid JSON. |
+| `document-not-json` | `error` | A document is not valid JSON. The finding carries the position, line and column of the failure and never the text at it: V8 quotes the input back in its own parse message, so a document short enough to be nothing but a credential would otherwise be reproduced in full by its own error. |
 | `document-invalid` | `error` | A document does not match its schema below. |
 | `document-unknown-key` | `error` | A document declares a key its schema does not define. A typo is refused, never ignored. |
 | `document-outside-root` | `error` | A declared document resolves outside the plan's directory. Refused unread; none of its content reaches the report. |

@@ -91,6 +91,18 @@ All notable changes to this project are documented in this file.
 
 ### Guaranteed
 
+- A parse failure does not quote the document it failed on. V8 writes
+  `Unexpected token 'A', "AKIAIOSFODNN7EXAMPLE" is not valid JSON`, so a plan or
+  a declared document short enough to be nothing but a credential was reproduced
+  in full by its own error message, on the report path an untrusted document
+  takes. Sanitising never helped: the quoted span sits at the front of the
+  message and a cut from the end leaves it. `document-not-json` now carries the
+  position, line and column and never the text at it, and
+  `test/parse-failure-redaction.test.mjs` plants the AWS documentation
+  placeholder in an unparseable plan and in an unparseable contract, runs the
+  real binary, and asserts it absent from stdout, from stderr and from every
+  prefix down to eight characters — the ten-character prefix V8 quotes for a
+  longer input included.
 - An expected application error passes its contract. `test/acceptance.test.mjs`
   drives a documented `422` and a documented `500` through the real binary and
   pins exit 0, `status: "pass"` and `summary.errors: 0` as literals — and drives

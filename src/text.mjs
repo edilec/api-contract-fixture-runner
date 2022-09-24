@@ -92,6 +92,34 @@ export function sanitize(value, limit = TEXT_LIMIT) {
 }
 
 /**
+ * What a JSON parse failure may be told about itself, with the input removed.
+ *
+ * V8 writes a parse failure two ways, and one of them quotes the document:
+ * `Unexpected token 'A', "AKIAIOSFODNN7EXAMPLE" is not valid JSON`. A contract,
+ * a fixture set or a plan short enough to be nothing but a credential is
+ * therefore reproduced in full by its own error message, and an untrusted or
+ * malformed document is exactly what takes this path. Sanitising does not help:
+ * the quoted span sits at the front of the message and survives a cut from the
+ * end.
+ *
+ * Position, line and column are the useful half and carry no content, so they
+ * are kept verbatim; so is the offending token, one character wide and bounded
+ * here to stay that way. The quoted half is the input and never leaves this
+ * function. V8 has a third spelling for a failure further into the document,
+ * `..."ixtures": AKIAIOSFOD"...`, which quotes a window rather than a prefix
+ * and carries no position at all; that one keeps only the token.
+ */
+export function parseFailureDetail(error) {
+  const message = String(error?.message ?? 'could not be parsed')
+  const position = /at position \d+(?: \(line \d+ column \d+\))?/.exec(message)
+  if (position) return message.slice(0, position.index + position[0].length)
+  const token = /^Unexpected token (.{1,8}?), (\.\.\.)?".*?"(?:\.\.\.)? is not valid JSON$/s.exec(message)
+  if (token) return token[2] === undefined ? `unexpected token ${token[1]} at the start of the document` : `unexpected token ${token[1]}`
+  if (/^Unexpected end of JSON input$/.test(message)) return message
+  return 'the document could not be parsed as JSON'
+}
+
+/**
  * Decode bytes as UTF-8, strictly.
  *
  * `fatal: true` is the entire point. Decoding leniently and then hunting for a
