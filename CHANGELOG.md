@@ -89,8 +89,41 @@ All notable changes to this project are documented in this file.
   limits, the report shape, the exit codes and the list of things this tool
   cannot conclude, in `docs/contract-rules.md`.
 
+### Fixed
+
+- `--out` no longer destroys a file it was never asked to touch. Pointed at a
+  **symbolic link**, the run wrote its report through the link and destroyed a
+  file outside the working directory, exiting 0 with a `pass` report on stdout;
+  a link whose target did not exist yet created a brand new file out there the
+  same way; and a **symlinked parent directory** carried the report out of a
+  root a lexical prefix check said it was inside. The destination against every
+  input's inode — the hard-link hole — was the one of the three this tool had
+  closed, and it is exactly the check that cannot see a link pointing at a file
+  that is not an input at all. The destination is now settled before the plan is
+  opened, with `lstat`, a resolved parent and an output root that defaults to
+  the working directory and is widened only by naming it: nothing is written,
+  stdout stays empty, exit code 2. The inode comparison against the contract and
+  fixture documents stays where it was, at the moment the copy is written, which
+  is when those inputs are known.
+
+### Added
+
+- `--out-root DIR`, naming the directory `--out` may write inside; it defaults
+  to the working directory, so a destination elsewhere is reachable by naming
+  its root rather than being refused outright.
+
 ### Guaranteed
 
+- A destination that writes somewhere it does not name is refused, and the
+  destinations that must still work are pinned with the same weight.
+  `test/destination.test.mjs` drives the real binary once per hole — a symbolic
+  link at the destination, a dangling one, a symlinked parent that leaves the
+  root, a `..` escape, a destination that is a directory — and once per allowed
+  destination: a plain path, a subdirectory, a rewrite of the previous run's
+  report, a directory reached through a symbolic link that stays inside the
+  root, and a path outside the working directory once `--out-root` names it. A
+  guard that refuses everything passes every data-loss test while making the
+  tool useless.
 - A parse failure does not quote the document it failed on. V8 writes
   `Unexpected token 'A', "AKIAIOSFODNN7EXAMPLE" is not valid JSON`, so a plan or
   a declared document short enough to be nothing but a credential was reproduced

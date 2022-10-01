@@ -126,21 +126,43 @@ too.
 The full schemas are in [`docs/contract-rules.md`](./docs/contract-rules.md), with the rule catalog,
 the supported schema subset, and the limits.
 
-## Nothing is ever written over an input
+## Nothing is ever written over an input, or anywhere it was not pointed
 
-`--out` writes the same bytes stdout carried to a file, for archiving from CI. A destination that is
-the same file as an input of the run is refused, and nothing is written.
+`--out` writes the same bytes stdout carried to a file, for archiving from CI. Where that file may
+land is checked in two places, because the two questions are answerable at different times.
 
-A destination that cannot be written at all — a directory that does not exist, a permission the run
-does not have — is reported as the same rule rather than thrown: the run had already checked
-everything, and discarding a whole report because a copy of it could not be filed is the worse
-answer. The error code reaches the report; the host path never does.
+**Before the run starts**, from the destination alone. Three independent holes, and this tool had
+closed exactly one of them — pointed at a symbolic link, it wrote its report through the link and
+destroyed a file outside the working directory, exiting 0 with a `pass` report on stdout:
 
-The comparison is on `dev` and `ino`, not on the real path. `realpath` resolves a symbolic link, but
+| Refused | Why the obvious guard misses it |
+| --- | --- |
+| a **symbolic link at the destination** | `realpath` on the destination *resolves* the link, and resolving is the dangerous act, so it is refused on sight with `lstat` before anything is opened. A link whose target does not exist yet is the same hole: following it creates a new file outside the root. |
+| a **symlinked parent directory** | a lexical prefix check passes for `root/link/report.json` where `link` leaves the root, so the parent is resolved and then compared. |
+| a destination **outside the output root** | the working directory, unless `--out-root DIR` names another. A `..` segment does not widen it. |
+| the **plan itself**, by path or hard link | the plan is the one input the run knows before it begins. |
+
+These are configuration errors: **nothing is written, stdout stays empty and the exit code is 2**.
+
+**When the copy is written**, against the documents the run turned out to read. The contract and
+fixture documents are discovered by reading the plan, so a destination that lands on one of them is
+evidence about a run that happened rather than a configuration error: it is reported as
+`output-destination-refused`, the report still goes to stdout, and nothing is written. A destination
+that cannot be written at all — a directory that does not exist, a permission the run does not have
+— is reported the same way, because discarding a whole report because a copy of it could not be
+filed is the worse answer. The error code reaches the report; the host path never does.
+
+That comparison is on `dev` and `ino`, not on the real path. `realpath` resolves a symbolic link, but
 a **hard link has no target**: two names for one inode resolve to two different real paths, a
 real-path comparison sees two different files, and the run writes its report over its own contract.
 `test/path-identity.test.mjs` asserts both halves — that the real paths genuinely differ, and that
 the write was refused anyway.
+
+Destinations that must still work, pinned in `test/destination.test.mjs` with the same weight as the
+refusals: a plain path, a subdirectory, a rewrite of the previous run's report, a directory reached
+through a symbolic link that stays inside the root, and a path outside the working directory once
+`--out-root` names the root it belongs to. A guard that refuses everything passes every data-loss
+test while making the tool useless.
 
 ## The bounded schema subset
 
@@ -188,7 +210,7 @@ reported as unchecked rather than guessed at.
 | ---: | --- | --- |
 | `0` | every case reached a verdict and the policy was satisfied | the report |
 | `1` | the run completed and the policy failed | the report |
-| `2` | invalid usage or configuration | **empty** |
+| `2` | invalid usage or configuration, including a refused `--out` destination | **empty** |
 | `2` | evidence that could not be obtained | an `incomplete` report |
 
 Unknown evidence is never a pass. `pass` with `checked: 0` is not reachable: a run that reached a
