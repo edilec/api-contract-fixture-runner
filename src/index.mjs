@@ -42,6 +42,7 @@ import {
   validateFixtures,
   validatePlan,
 } from './documents.mjs'
+import { assertWritableDestination } from './destination.mjs'
 import { classifyTarget, createInProcessMock } from './mock.mjs'
 import { INCOMPLETE_RULES, compareFindings, createFinding, sortFindings } from './rules.mjs'
 import { SUPPORTED_DIALECTS, isRecord, jsonEqual, validateValue } from './schema.mjs'
@@ -51,7 +52,7 @@ export const TOOL_ID = 'api-contract-fixture-runner'
 export const REPORT_SCHEMA_VERSION = '1'
 
 const RUN_OPTION_KEYS = Object.freeze(['baseDir', 'call', 'identities', 'label', 'limits'])
-const FILE_OPTION_KEYS = Object.freeze(['call', 'label', 'limits', 'out'])
+const FILE_OPTION_KEYS = Object.freeze(['call', 'label', 'limits', 'out', 'outRoot'])
 
 /**
  * Containment, decided on real paths.
@@ -976,6 +977,32 @@ export async function runPlanFile(planPath, options = {}) {
   const label = sanitize(options.label ?? planPath, 200)
   const identities = []
 
+  /**
+   * Where the `--out` copy may land, settled before the plan is opened.
+   *
+   * This tool wrote its report through a symbolic link at the destination and
+   * destroyed a file outside the working directory, exiting 0 with a "pass"
+   * report on stdout. The destination was compared against the inode of every
+   * document the run read -- the hard-link hole, closed -- and that comparison
+   * cannot see a link pointing at a file that is not an input at all. The
+   * three holes are documented one by one in ./destination.mjs.
+   *
+   * This is configuration, so it throws rather than reporting: the run has no
+   * subject yet, nothing has been read, and the caller exits 2 with an empty
+   * stdout. The plan is the one input that is already known here, so it is the
+   * one input named; the contract and fixture documents are discovered by
+   * reading the plan, and the destination is compared against their inodes at
+   * the moment the copy is written, where a refusal is evidence about a run
+   * that happened rather than a configuration error.
+   */
+  const destination = options.out === undefined
+    ? null
+    : await assertWritableDestination(options.out, {
+      inputs: [resolve(planPath)],
+      root: options.outRoot ?? process.cwd(),
+      label: '--out',
+    })
+
   const halt = (ruleId, message, suggestion) =>
     haltedReport(label, limits, [{ file: label, pointer: '/', ruleId, message, ...(suggestion === undefined ? {} : { suggestion }) }])
 
@@ -984,11 +1011,11 @@ export async function runPlanFile(planPath, options = {}) {
   try {
     info = await stat(absolute)
   } catch (error) {
-    return finish(await halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`, 'Check the --plan path and its permissions.'), options, identities, label)
+    return finish(await halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`, 'Check the --plan path and its permissions.'), options, identities, label, destination)
   }
   identities.push({ label, dev: info.dev, ino: info.ino })
   if (!info.isFile()) {
-    return finish(await halt('document-unreadable', 'The plan path is not a regular file.', 'Pass the JSON plan file to --plan.'), options, identities, label)
+    return finish(await halt('document-unreadable', 'The plan path is not a regular file.', 'Pass the JSON plan file to --plan.'), options, identities, label, destination)
   }
   if (info.size > limits.maxDocumentBytes) {
     return finish(
@@ -1000,6 +1027,7 @@ export async function runPlanFile(planPath, options = {}) {
       options,
       identities,
       label,
+      destination,
     )
   }
 
@@ -1007,12 +1035,12 @@ export async function runPlanFile(planPath, options = {}) {
   try {
     bytes = await readFile(absolute)
   } catch (error) {
-    return finish(await halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`), options, identities, label)
+    return finish(await halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`), options, identities, label, destination)
   }
 
   const decoded = decodeUtf8(bytes)
   if (!decoded.ok) {
-    return finish(await halt('document-not-utf8', 'The plan file is not valid UTF-8, so it was not parsed.', 'Re-encode the plan as UTF-8.'), options, identities, label)
+    return finish(await halt('document-not-utf8', 'The plan file is not valid UTF-8, so it was not parsed.', 'Re-encode the plan as UTF-8.'), options, identities, label, destination)
   }
 
   let parsed
@@ -1024,6 +1052,7 @@ export async function runPlanFile(planPath, options = {}) {
       options,
       identities,
       label,
+      destination,
     )
   }
 
@@ -1041,7 +1070,7 @@ export async function runPlanFile(planPath, options = {}) {
     ...(options.limits === undefined ? {} : { limits: options.limits }),
     ...(options.call === undefined ? {} : { call: options.call }),
   })
-  return finish(report, options, identities, label)
+  return finish(report, options, identities, label, destination)
 }
 
 /**
@@ -1088,6 +1117,14 @@ function reportWithOutputRefusal(report, options, label, refusal) {
 /**
  * Write the optional `--out` copy, refusing a destination that is an input.
  *
+ * The destination arrives already checked for the three ways a path can write
+ * somewhere it does not name -- a link at the destination, a link in its
+ * parent, an escape from the output root -- and already resolved, by
+ * `assertWritableDestination` in `runPlanFile`, before the plan was opened.
+ * What is left here is the one question that could not be answered then: the
+ * contract and fixture documents were discovered by reading the plan, and the
+ * copy must not land on one of them.
+ *
  * The comparison is on `dev` and `ino`, not on the real path. A symbolic link
  * has a target that `realpath` resolves, but a **hard link has no target**: two
  * names for one inode resolve to two different real paths, a real-path
@@ -1101,10 +1138,9 @@ function reportWithOutputRefusal(report, options, label, refusal) {
  * printing the evidence and saying the copy was not made. The error *code*
  * reaches the report; the host path never does.
  */
-async function finish(report, options, identities, label) {
-  if (options.out === undefined) return report
+async function finish(report, options, identities, label, destination) {
+  if (destination === null) return report
 
-  const destination = resolve(options.out)
   let clash = null
   try {
     const info = await stat(destination)

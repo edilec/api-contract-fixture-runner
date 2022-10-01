@@ -32,11 +32,19 @@ Options:
   --call                   Make the optional in-process calls
   --no-call                Skip them, whatever the plan says
   --out FILE               Also write the JSON report to FILE. A destination
-                           that is the same file as an input -- by path, by
-                           symlink, or by hard link -- is refused and nothing
-                           is written. A destination that cannot be written at
-                           all is reported the same way, and the report still
+                           that is a symbolic link, that resolves outside the
+                           output root, that is not a regular file, or that is
+                           the plan itself is refused before the run starts:
+                           nothing is written, stdout stays empty and the exit
+                           code is 2. A destination that turns out to be a
+                           contract or fixture document of this run -- by path
+                           or by hard link, which shares no path with the file
+                           it names -- is refused when the copy is written, and
+                           so is a destination that cannot be written at all;
+                           both are reported as findings and the report still
                            goes to stdout rather than being thrown away.
+  --out-root DIR           Directory --out may write inside
+                           (default: the working directory)
   --json                   Suppress the human summary on stderr
   --max-document-bytes N   Maximum bytes per document (default 1048576)
   --max-operations N       Maximum contract operations (default 200)
@@ -62,8 +70,9 @@ Exit codes:
   0  every fixture case reached a verdict and the policy was satisfied
   1  the run completed and the policy failed (a status, content-type or body
      mismatch, a fixture naming an operation the contract does not declare)
-  2  invalid usage or configuration (stdout is empty), or evidence that could
-     not be obtained (an "incomplete" report on stdout, never a "pass")
+  2  invalid usage or configuration, which includes a refused --out
+     destination (stdout is empty and nothing is written), or evidence that
+     could not be obtained (an "incomplete" report on stdout, never a "pass")
 `
 
 const LIMIT_FLAGS = new Map([
@@ -80,7 +89,7 @@ function parseArguments(argv) {
   if (argv.includes('-h') || argv.includes('--help')) return { help: true }
   if (argv.includes('-v') || argv.includes('--version')) return { version: true }
 
-  const options = { plan: null, label: null, out: null, json: false, call: null, limits: {} }
+  const options = { plan: null, label: null, out: null, outRoot: null, json: false, call: null, limits: {} }
   const given = new Set()
 
   /**
@@ -123,6 +132,9 @@ function parseArguments(argv) {
     } else if (argument === '--out') {
       once('--out')
       options.out = takeValue('--out')
+    } else if (argument === '--out-root') {
+      once('--out-root')
+      options.outRoot = takeValue('--out-root')
     } else if (LIMIT_FLAGS.has(argument)) {
       once(argument)
       const raw = takeValue(argument)
@@ -158,6 +170,7 @@ async function main(argv) {
     report = await runPlanFile(options.plan, {
       ...(options.label === null ? {} : { label: options.label }),
       ...(options.out === null ? {} : { out: options.out }),
+      ...(options.outRoot === null ? {} : { outRoot: options.outRoot }),
       ...(options.call === null ? {} : { call: options.call }),
       limits: options.limits,
     })

@@ -68,13 +68,18 @@ test('--help and --version print to stdout and exit 0', async () => {
   assert.equal(version.stdout, '0.1.0\n')
 })
 
-test('the help text names every exit code and both --out refusals', async () => {
+test('the help text names every exit code and every --out refusal', async () => {
   const { stdout } = await cli(['--help'])
   assert.equal(stdout.includes('Exit codes:'), true)
   assert.equal(stdout.includes('  0  '), true)
   assert.equal(stdout.includes('  1  '), true)
   assert.equal(stdout.includes('  2  '), true)
-  assert.equal(stdout.includes('symlink, or by hard link'), true)
+  // The three ways a destination writes somewhere it does not name, and the
+  // two ways it lands on an input.
+  assert.equal(stdout.includes('a symbolic link'), true)
+  assert.equal(stdout.includes('outside the'), true)
+  assert.equal(stdout.includes('by hard link'), true)
+  assert.equal(stdout.includes('--out-root DIR'), true)
 })
 
 test('stdout carries only JSON, and the summary goes to stderr', async () => {

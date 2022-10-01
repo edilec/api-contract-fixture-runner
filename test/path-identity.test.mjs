@@ -85,7 +85,7 @@ test('a hard link to an input is refused, though its real path is different', as
   })
 })
 
-test('a symlink to an input is refused too', async () => {
+test('a symlink to an input is refused before the run starts, not after it', async () => {
   await withBase(async (base) => {
     await seed(base)
     const fixturesPath = join(base, 'fixtures.json')
@@ -93,23 +93,31 @@ test('a symlink to an input is refused too', async () => {
     await symlink(fixturesPath, soft)
 
     const before = await readFile(fixturesPath, 'utf8')
-    const { code, stdout } = await cli(base, ['--out', soft, '--json'])
+    const { code, stdout, stderr } = await cli(base, ['--out', soft, '--json'])
 
-    assert.equal(code, 1)
-    assert.equal(JSON.parse(stdout).findings.some((finding) => finding.ruleId === 'output-destination-refused'), true)
+    // A symbolic link at the destination is refused on sight, whatever it
+    // points at: resolving it to find out is the dangerous act. That makes it
+    // a configuration error rather than a finding -- nothing has been read
+    // yet -- so stdout carries no report at all.
+    assert.equal(code, 2)
+    assert.equal(stdout, '')
+    assert.equal(stderr.includes('symbolic link'), true)
     assert.equal(await readFile(fixturesPath, 'utf8'), before)
   })
 })
 
-test('the plan file itself is an input, and is refused as a destination', async () => {
+test('the plan file itself is an input, and is refused as a destination before the run starts', async () => {
   await withBase(async (base) => {
     await seed(base)
     const planPath = join(base, 'plan.json')
     const before = await readFile(planPath, 'utf8')
-    const { code, stdout } = await cli(base, ['--out', planPath, '--json'])
+    const { code, stdout, stderr } = await cli(base, ['--out', planPath, '--json'])
 
-    assert.equal(code, 1)
-    assert.equal(JSON.parse(stdout).findings.some((finding) => finding.ruleId === 'output-destination-refused'), true)
+    // The plan is the one input the run knows about before it begins, so
+    // pointing --out at it is configuration and is answered as configuration.
+    assert.equal(code, 2)
+    assert.equal(stdout, '')
+    assert.equal(stderr.includes('same file as an input'), true)
     assert.equal(await readFile(planPath, 'utf8'), before)
   })
 })
