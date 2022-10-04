@@ -42,7 +42,6 @@ export const RULE_SEVERITY = Object.freeze({
   'mock-target-refused': 'error',
   'no-cases-checked': 'error',
   'operation-without-fixture': 'warning',
-  'output-destination-refused': 'error',
   'request-body-mismatch': 'error',
   'request-content-type-mismatch': 'error',
   'request-header-missing': 'error',
@@ -70,7 +69,7 @@ export const SEVERITY_VALUES = Object.freeze(['error', 'warning', 'info'])
  * Every other error rule also sets the `incomplete` flag, so it exits 2
  * whatever its severity says, and `test/incomplete-severity.test.mjs` pins
  * those by the counted errors and the printed severity word instead. These
- * sixteen have no second line of defence: severity is the whole of it, and
+ * fifteen have no second line of defence: severity is the whole of it, and
  * `test/severity-decides.test.mjs` drives each one through the binary and pins
  * status `fail` and exit code 1.
  */
@@ -80,7 +79,6 @@ export const SEVERITY_DECIDES = Object.freeze([
   'live-content-type-mismatch',
   'live-header-mismatch',
   'live-status-mismatch',
-  'output-destination-refused',
   'request-body-mismatch',
   'request-content-type-mismatch',
   'request-header-missing',

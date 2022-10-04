@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { link, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
@@ -32,6 +32,14 @@ import { sameFileReason } from '../src/destination.mjs'
  *
  * The ALLOWED rows carry the same weight as the refusals: a guard that refuses
  * everything passes every data-loss test above while making the tool useless.
+ *
+ * All four questions are settled twice, because only the first three can be
+ * answered before the run: whether the destination is one of the run's own
+ * inputs is not decidable until the plan has been read and the documents it
+ * names are known. So the destination is settled once before the plan is
+ * opened and once more immediately before the copy is written -- still before
+ * a byte has reached stdout, so both refusals are the same shape: exit 2, an
+ * empty stdout, nothing written.
  */
 
 const run = promisify(execFile)
@@ -135,6 +143,47 @@ test('a destination that is a directory is refused rather than opened', async ()
   })
 })
 
+test('a contract document the plan names is refused, though the run learns of it only by reading the plan', async () => {
+  await withWorkspace(async ({ root }) => {
+    const contract = join(root, 'contract.json')
+    const before = await readFile(contract, 'utf8')
+
+    const result = await check(root, ['--out', 'contract.json'])
+
+    // Settling the destination only before the run cannot see this: at that
+    // moment the plan is the sole known input. Settling it again before the
+    // write is what makes this a refusal rather than a destroyed contract.
+    assertRefused(result)
+    assert.equal(result.stderr.includes('same file as an input'), true)
+    assert.equal(await readFile(contract, 'utf8'), before)
+  })
+})
+
+test('a fixture document the plan names is refused the same way', async () => {
+  await withWorkspace(async ({ root }) => {
+    const fixtures = join(root, 'fixtures.json')
+    const before = await readFile(fixtures, 'utf8')
+
+    const result = await check(root, ['--out', 'fixtures.json'])
+
+    assertRefused(result)
+    assert.equal(await readFile(fixtures, 'utf8'), before)
+  })
+})
+
+test('a hard link to a document the plan names is refused, and no report reaches stdout', async () => {
+  await withWorkspace(async ({ root }) => {
+    const fixtures = join(root, 'fixtures.json')
+    const before = await readFile(fixtures, 'utf8')
+    await link(fixtures, join(root, 'report.json'))
+
+    const result = await check(root, ['--out', 'report.json'])
+
+    assertRefused(result)
+    assert.equal(await readFile(fixtures, 'utf8'), before)
+  })
+})
+
 test('ALLOWED: a plain destination, a rewrite of the previous run, and a subdirectory', async () => {
   await withWorkspace(async ({ root }) => {
     const first = await check(root, ['--out', 'report.json'])
@@ -147,6 +196,15 @@ test('ALLOWED: a plain destination, a rewrite of the previous run, and a subdire
     await mkdir(join(root, 'build'))
     assert.equal((await check(root, ['--out', join('build', 'report.json')])).code, 0)
     assert.equal(JSON.parse(await readFile(join(root, 'build', 'report.json'), 'utf8')).status, 'pass')
+  })
+})
+
+test('ALLOWED: a directory that does not exist yet, which the guard already resolves through', async () => {
+  await withWorkspace(async ({ root }) => {
+    const result = await check(root, ['--out', join('reports', '2026', 'report.json')])
+
+    assert.equal(result.code, 0)
+    assert.equal(await readFile(join(root, 'reports', '2026', 'report.json'), 'utf8'), result.stdout)
   })
 })
 

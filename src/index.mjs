@@ -28,10 +28,14 @@
  *    the report is refused when its destination is the same *inode* as any
  *    document the run read. A real-path comparison would not catch this: a hard
  *    link has no target to resolve, so two names for one file resolve to two
- *    different real paths and the comparison passes.
+ *    different real paths and the comparison passes. Which documents the run
+ *    read is only established by reading them, so the destination is settled
+ *    twice -- once before the plan is opened and once more immediately before
+ *    the copy is written, where stdout is still empty. Every refusal is
+ *    therefore the one shape: exit 2, an empty stdout, nothing written.
  */
 
-import { readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { dirname, resolve, sep } from 'node:path'
 
 import {
@@ -42,7 +46,7 @@ import {
   validateFixtures,
   validatePlan,
 } from './documents.mjs'
-import { assertWritableDestination } from './destination.mjs'
+import { DestinationError, assertWritableDestination } from './destination.mjs'
 import { classifyTarget, createInProcessMock } from './mock.mjs'
 import { INCOMPLETE_RULES, compareFindings, createFinding, sortFindings } from './rules.mjs'
 import { SUPPORTED_DIALECTS, isRecord, jsonEqual, validateValue } from './schema.mjs'
@@ -51,7 +55,7 @@ import { decodeUtf8, describeValue, exceedsDepth, jsonByteLength, parseFailureDe
 export const TOOL_ID = 'api-contract-fixture-runner'
 export const REPORT_SCHEMA_VERSION = '1'
 
-const RUN_OPTION_KEYS = Object.freeze(['baseDir', 'call', 'identities', 'label', 'limits'])
+const RUN_OPTION_KEYS = Object.freeze(['baseDir', 'call', 'label', 'limits', 'opened'])
 const FILE_OPTION_KEYS = Object.freeze(['call', 'label', 'limits', 'out', 'outRoot'])
 
 /**
@@ -172,8 +176,15 @@ function haltedReport(label, limits, rows) {
  * the bytes are decoded with the same strict decoder as the plan itself, and
  * every failure is reported by the name the plan used rather than by a host
  * path -- `location.file` is never absolute.
+ *
+ * The real path of every document that got past containment is recorded in
+ * `opened`, which is what the `--out` destination is settled against before
+ * the copy is written. It is recorded *before* the file is opened, so a
+ * document that turned out to be unreadable, too large, not UTF-8 or not JSON
+ * is protected as well: the run failed to read it, which is not the same as
+ * not needing it.
  */
-async function readDocument(collector, root, declared, limits, identities) {
+async function readDocument(collector, root, declared, limits, opened) {
   const label = sanitize(declared, 200)
   const absolute = resolve(root, declared)
 
@@ -202,6 +213,8 @@ async function readDocument(collector, root, declared, limits, identities) {
     return null
   }
 
+  opened.add(real)
+
   let info
   try {
     info = await stat(real)
@@ -214,7 +227,6 @@ async function readDocument(collector, root, declared, limits, identities) {
     })
     return null
   }
-  identities.push({ label, dev: info.dev, ino: info.ino })
 
   if (!info.isFile()) {
     record(collector, {
@@ -374,7 +386,7 @@ export async function runPlan(rawPlan, options = {}) {
   const collector = createCollector(label)
   const counts = emptyCounts()
   const run = emptyRun()
-  const identities = Array.isArray(options.identities) ? options.identities : []
+  const opened = options.opened instanceof Set ? options.opened : new Set()
 
   const planShape = validatePlan(rawPlan)
   recordShape(collector, label, planShape)
@@ -400,8 +412,8 @@ export async function runPlan(rawPlan, options = {}) {
     root = resolve(options.baseDir)
   }
 
-  const contractDocument = await readDocument(collector, root, rawPlan.contract, limits, identities)
-  const fixturesDocument = await readDocument(collector, root, rawPlan.fixtures, limits, identities)
+  const contractDocument = await readDocument(collector, root, rawPlan.contract, limits, opened)
+  const fixturesDocument = await readDocument(collector, root, rawPlan.fixtures, limits, opened)
   if (contractDocument === null || fixturesDocument === null) {
     return haltedReport(label, limits, collector.rows)
   }
@@ -975,85 +987,111 @@ export async function runPlanFile(planPath, options = {}) {
   }
   const limits = applyLimits(options.limits ?? {})
   const label = sanitize(options.label ?? planPath, 200)
-  const identities = []
+  const absolute = resolve(planPath)
 
   /**
-   * Where the `--out` copy may land, settled before the plan is opened.
+   * Every document this run resolved inside the plan's directory, by real path.
+   *
+   * This is the input set the `--out` destination has to be compared against,
+   * and it is only known once the plan has been read: the plan names the
+   * contract and the fixtures as relative paths a symbolic link may move.
+   */
+  const opened = new Set()
+
+  /**
+   * Where the `--out` copy may land, settled against the inputs known so far.
    *
    * This tool wrote its report through a symbolic link at the destination and
    * destroyed a file outside the working directory, exiting 0 with a "pass"
-   * report on stdout. The destination was compared against the inode of every
-   * document the run read -- the hard-link hole, closed -- and that comparison
-   * cannot see a link pointing at a file that is not an input at all. The
-   * three holes are documented one by one in ./destination.mjs.
+   * report on stdout. The three holes -- a link at the destination, a link in
+   * its parent, an escape from the output root -- are documented one by one in
+   * ./destination.mjs, and the fourth question, whether the destination is one
+   * of the run's own inputs, is the reason this is called twice.
    *
-   * This is configuration, so it throws rather than reporting: the run has no
-   * subject yet, nothing has been read, and the caller exits 2 with an empty
-   * stdout. The plan is the one input that is already known here, so it is the
-   * one input named; the contract and fixture documents are discovered by
-   * reading the plan, and the destination is compared against their inodes at
-   * the moment the copy is written, where a refusal is evidence about a run
-   * that happened rather than a configuration error.
+   * A refused destination is configuration, so it throws rather than
+   * reporting: the run was asked to write somewhere it must not write, so
+   * nothing is written, stdout stays empty and the caller exits 2. That is the
+   * shape whichever settling refuses, which is why the second one happens
+   * before a single byte of the report has reached stdout.
    */
-  const destination = options.out === undefined
-    ? null
-    : await assertWritableDestination(options.out, {
-      inputs: [resolve(planPath)],
-      root: options.outRoot ?? process.cwd(),
-      label: '--out',
-    })
+  const settleDestination = (inputs) => assertWritableDestination(options.out, {
+    inputs,
+    root: options.outRoot ?? process.cwd(),
+    label: '--out',
+  })
+
+  /**
+   * Settled the first time against the one input known this early: the plan.
+   *
+   * A destination that is a link, or that leaves the output root, or that is
+   * the plan itself costs nothing here -- nothing read, nothing written, an
+   * empty stdout -- and the run never starts.
+   */
+  if (options.out !== undefined) await settleDestination([absolute])
+
+  /**
+   * Settled a second time, now that the run knows what it read, and only then
+   * written.
+   *
+   * Naming only the plan the first time is how this tool wrote its report over
+   * the contract it had just checked. The contract and the fixture documents
+   * are discovered by reading the plan, so a destination that turns out to be
+   * one of them -- by path, or by a hard link, which shares no path with the
+   * file it names -- can only be recognised here. Nothing has reached stdout
+   * yet, so the refusal keeps the contract shape.
+   */
+  const finish = async (report) => {
+    if (options.out === undefined) return report
+    const destination = await settleDestination([absolute, ...opened])
+    try {
+      await mkdir(dirname(destination), { recursive: true })
+      await writeFile(destination, `${serializeReport(report)}\n`)
+    } catch (error) {
+      throw new DestinationError(
+        `--out could not be written: ${error.code ?? 'unknown error'}. Nothing was written to stdout either, `
+        + 'because a run that could not file the copy it was asked for has not done what it was asked; '
+        + 're-run without --out for the report.',
+      )
+    }
+    return report
+  }
 
   const halt = (ruleId, message, suggestion) =>
     haltedReport(label, limits, [{ file: label, pointer: '/', ruleId, message, ...(suggestion === undefined ? {} : { suggestion }) }])
-
-  const absolute = resolve(planPath)
   let info
   try {
     info = await stat(absolute)
   } catch (error) {
-    return finish(await halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`, 'Check the --plan path and its permissions.'), options, identities, label, destination)
+    return finish(halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`, 'Check the --plan path and its permissions.'))
   }
-  identities.push({ label, dev: info.dev, ino: info.ino })
   if (!info.isFile()) {
-    return finish(await halt('document-unreadable', 'The plan path is not a regular file.', 'Pass the JSON plan file to --plan.'), options, identities, label, destination)
+    return finish(halt('document-unreadable', 'The plan path is not a regular file.', 'Pass the JSON plan file to --plan.'))
   }
   if (info.size > limits.maxDocumentBytes) {
-    return finish(
-      await halt(
-        'limit-document-bytes-exceeded',
-        `The plan file is ${info.size} bytes, above the maxDocumentBytes limit of ${limits.maxDocumentBytes}; it was not parsed.`,
-        'Raise limits.maxDocumentBytes, or move the detail into the contract and fixture documents.',
-      ),
-      options,
-      identities,
-      label,
-      destination,
-    )
+    return finish(halt(
+      'limit-document-bytes-exceeded',
+      `The plan file is ${info.size} bytes, above the maxDocumentBytes limit of ${limits.maxDocumentBytes}; it was not parsed.`,
+      'Raise limits.maxDocumentBytes, or move the detail into the contract and fixture documents.',
+    ))
   }
 
   let bytes
   try {
     bytes = await readFile(absolute)
   } catch (error) {
-    return finish(await halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`), options, identities, label, destination)
+    return finish(halt('document-unreadable', `The plan file could not be read: ${error.code ?? 'unknown error'}.`))
   }
 
   const decoded = decodeUtf8(bytes)
   if (!decoded.ok) {
-    return finish(await halt('document-not-utf8', 'The plan file is not valid UTF-8, so it was not parsed.', 'Re-encode the plan as UTF-8.'), options, identities, label, destination)
+    return finish(halt('document-not-utf8', 'The plan file is not valid UTF-8, so it was not parsed.', 'Re-encode the plan as UTF-8.'))
   }
 
   let parsed
   try {
     parsed = JSON.parse(decoded.text)
   } catch (error) {
-    return finish(
-      await halt('document-not-json', `The plan file is not valid JSON: ${sanitize(parseFailureDetail(error), 160)}.`, 'Validate the plan with a JSON parser before re-running.'),
-      options,
-      identities,
-      label,
-      destination,
-    )
+    return finish(halt('document-not-json', `The plan file is not valid JSON: ${sanitize(parseFailureDetail(error), 160)}.`, 'Validate the plan with a JSON parser before re-running.'))
   }
 
   let baseDir
@@ -1066,107 +1104,11 @@ export async function runPlanFile(planPath, options = {}) {
   const report = await runPlan(parsed, {
     label,
     baseDir,
-    identities,
+    opened,
     ...(options.limits === undefined ? {} : { limits: options.limits }),
     ...(options.call === undefined ? {} : { call: options.call }),
   })
-  return finish(report, options, identities, label, destination)
-}
-
-/**
- * Rebuild the report around a refusal to write the `--out` copy.
- *
- * The refusal does not amend the report, it rebuilds it -- and every row goes
- * back through `record` on the way in, the one place that raises `incomplete`
- * from the one list. Pushing straight onto `collector.rows` here left the flag
- * carried by a single assignment, and a rebuild that drops it reports "the
- * policy failed" for a run that never read its contract. The verdict a run
- * reached is not the rebuild's to soften.
- */
-function reportWithOutputRefusal(report, options, label, refusal) {
-  const collector = createCollector(label)
-  for (const finding of report.findings) {
-    record(collector, {
-      file: finding.location.file,
-      pointer: finding.location.pointer,
-      ruleId: finding.ruleId,
-      message: finding.message,
-      evidence: finding.evidence,
-      suggestion: finding.suggestion,
-    })
-  }
-  // Redundant while every `incomplete` status is raised by a rule in the one
-  // list -- which `record` above has just re-applied -- and kept because the
-  // verdict of the run is the authority here, not a re-derivation of it.
-  if (report.status === 'incomplete') collector.incomplete = true
-  record(collector, { file: label, pointer: '/', ruleId: 'output-destination-refused', ...refusal })
-
-  const limits = applyLimits(options.limits ?? {})
-  return buildReport(collector, {
-    cases: report.summary.cases,
-    checked: report.summary.checked,
-    passed: report.summary.passed,
-    failed: report.summary.failed,
-    skipped: report.summary.skipped,
-    operations: report.summary.operations,
-    exercised: report.summary.exercised,
-    liveCalls: report.summary.liveCalls,
-  }, report.run, limits)
-}
-
-/**
- * Write the optional `--out` copy, refusing a destination that is an input.
- *
- * The destination arrives already checked for the three ways a path can write
- * somewhere it does not name -- a link at the destination, a link in its
- * parent, an escape from the output root -- and already resolved, by
- * `assertWritableDestination` in `runPlanFile`, before the plan was opened.
- * What is left here is the one question that could not be answered then: the
- * contract and fixture documents were discovered by reading the plan, and the
- * copy must not land on one of them.
- *
- * The comparison is on `dev` and `ino`, not on the real path. A symbolic link
- * has a target that `realpath` resolves, but a **hard link has no target**: two
- * names for one inode resolve to two different real paths, a real-path
- * comparison sees two different files, and the run writes its report over its
- * own contract. The inode is the identity.
- *
- * A destination that cannot be written -- a directory that does not exist, a
- * permission the run does not have -- is reported the same way rather than
- * thrown. The report had already been computed, and discarding a whole run's
- * evidence because a copy of it could not be filed is a worse answer than
- * printing the evidence and saying the copy was not made. The error *code*
- * reaches the report; the host path never does.
- */
-async function finish(report, options, identities, label, destination) {
-  if (destination === null) return report
-
-  let clash = null
-  try {
-    const info = await stat(destination)
-    clash = identities.find((entry) => entry.dev === info.dev && entry.ino === info.ino) ?? null
-  } catch {
-    clash = null
-  }
-
-  if (clash !== null) {
-    return reportWithOutputRefusal(report, options, label, {
-      message: 'The requested output destination is the same file as an input of this run, so nothing was written and the input is intact.',
-      evidence: `same inode as ${clash.label}`,
-      suggestion: 'Write the report somewhere outside the inputs of the run.',
-    })
-  }
-
-  try {
-    await writeFile(destination, `${serializeReport(report)}\n`)
-  } catch (error) {
-    return reportWithOutputRefusal(report, options, label, {
-      message: `The report could not be written to the requested output destination: ${error.code ?? 'unknown error'}. The report is on stdout and nothing was written.`,
-      evidence: error.code ?? 'unknown error',
-      suggestion: 'Create the directory the destination is in, or choose a destination this run can write.',
-    })
-  }
-  return report
+  return finish(report)
 }
 
 export function exitCodeFor(report) {

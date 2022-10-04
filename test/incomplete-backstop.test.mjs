@@ -35,13 +35,18 @@ async function withBase(body) {
   }
 }
 
-async function cli(base, args = []) {
+async function raw(base, args = []) {
   try {
     const { stdout, stderr } = await run(process.execPath, [CLI, '--plan', join(base, 'plan.json'), '--label', 'plan.json', '--json', ...args], { cwd: base })
-    return { code: 0, report: JSON.parse(stdout), stderr }
+    return { code: 0, stdout, stderr }
   } catch (error) {
-    return { code: error.code, report: JSON.parse(error.stdout), stderr: error.stderr }
+    return { code: error.code, stdout: error.stdout, stderr: error.stderr }
   }
+}
+
+async function cli(base, args = []) {
+  const result = await raw(base, args)
+  return { ...result, report: JSON.parse(result.stdout) }
 }
 
 async function seed(base, responseBodySchema, expectedBody, plan = {}) {
@@ -196,48 +201,59 @@ test('the incomplete diagnostic on stderr says what was not examined', async () 
   assert.equal(result.stderr.includes('this is not a pass'), true)
 })
 
-test('a refused --out destination rebuilds the report and the incomplete verdict survives the rebuild', async () => {
-  // The `--out` refusal does not add a finding to the run: it rebuilds the
-  // whole report around one. A rebuild that carries the findings across but
-  // drops the flag turns "evidence could not be obtained" into "the policy
-  // failed" -- a verdict about a contract this run never even parsed.
+test('a refused --out destination answers as configuration, whatever verdict the run had reached', async () => {
+  // A refused destination is not a finding about the run: the run was asked
+  // to write somewhere it must not write. So the verdict underneath it --
+  // "evidence could not be obtained" or "the policy failed" -- never reaches
+  // stdout at all, and neither does the exit code it would have carried.
   const unread = await withBase(async (base) => {
     await seed(base, { type: 'object' }, {})
     await writeFile(join(base, 'contract.json'), 'this is not json')
-    return cli(base, ['--out', join(base, 'contract.json')])
+    return raw(base, ['--out', join(base, 'contract.json')])
   })
 
   assert.equal(unread.code, 2)
-  assert.equal(unread.report.status, 'incomplete')
-  assert.equal(unread.report.summary.checked, 0)
-  assert.deepEqual(
-    unread.report.findings.map((finding) => finding.ruleId),
-    ['document-not-json', 'output-destination-refused', 'no-cases-checked'],
-  )
+  assert.equal(unread.stdout, '')
+  assert.equal(unread.stderr.includes('same file as an input'), true)
 
-  // The same refusal over a run that did read everything is an ordinary
-  // failure, so the two halves must genuinely disagree.
   const failed = await withBase(async (base) => {
     await seed(base, { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }, { id: 7 })
-    return cli(base, ['--out', join(base, 'contract.json')])
+    return raw(base, ['--out', join(base, 'contract.json')])
   })
 
-  assert.equal(failed.code, 1)
-  assert.equal(failed.report.status, 'fail')
-  assert.equal(failed.report.findings.some((finding) => finding.ruleId === 'output-destination-refused'), true)
+  assert.equal(failed.code, 2)
+  assert.equal(failed.stdout, '')
 
-  assert.notEqual(unread.code, failed.code)
-  assert.notEqual(unread.report.status, failed.report.status)
+  // ...and the two runs underneath really are different runs, which is what
+  // makes the agreement above a statement about the refusal rather than a
+  // coincidence. Without --out they disagree on both the status and the code.
+  const unreadAlone = await withBase(async (base) => {
+    await seed(base, { type: 'object' }, {})
+    await writeFile(join(base, 'contract.json'), 'this is not json')
+    return cli(base)
+  })
+  const failedAlone = await withBase(async (base) => {
+    await seed(base, { type: 'object', required: ['id'], properties: { id: { type: 'string' } } }, { id: 7 })
+    return cli(base)
+  })
+
+  assert.equal(unreadAlone.code, 2)
+  assert.equal(unreadAlone.report.status, 'incomplete')
+  assert.equal(unreadAlone.report.summary.checked, 0)
+  assert.equal(failedAlone.code, 1)
+  assert.equal(failedAlone.report.status, 'fail')
+  assert.notEqual(unreadAlone.code, failedAlone.code)
+  assert.notEqual(unreadAlone.report.status, failedAlone.report.status)
 })
 
 test('the refused --out destination leaves the input it was pointed at byte-identical', async () => {
   await withBase(async (base) => {
     await seed(base, { type: 'object' }, {})
     await writeFile(join(base, 'contract.json'), 'this is not json')
-    const result = await cli(base, ['--out', join(base, 'contract.json')])
+    const result = await raw(base, ['--out', join(base, 'contract.json')])
 
     assert.equal(result.code, 2)
+    assert.equal(result.stdout, '')
     assert.equal(await readFile(join(base, 'contract.json'), 'utf8'), 'this is not json')
-    assert.equal(result.report.findings.some((finding) => finding.ruleId === 'output-destination-refused'), true)
   })
 })

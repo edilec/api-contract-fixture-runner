@@ -34,15 +34,17 @@ Options:
   --out FILE               Also write the JSON report to FILE. A destination
                            that is a symbolic link, that resolves outside the
                            output root, that is not a regular file, or that is
-                           the plan itself is refused before the run starts:
-                           nothing is written, stdout stays empty and the exit
-                           code is 2. A destination that turns out to be a
-                           contract or fixture document of this run -- by path
-                           or by hard link, which shares no path with the file
-                           it names -- is refused when the copy is written, and
-                           so is a destination that cannot be written at all;
-                           both are reported as findings and the report still
-                           goes to stdout rather than being thrown away.
+                           an input of this run -- the plan, or a contract or
+                           fixture document it names, by path or by hard link,
+                           which shares no path with the file it names -- is
+                           refused. So is a destination that cannot be written.
+                           Every refusal is the same shape: nothing is written,
+                           stdout stays empty and the exit code is 2. The
+                           destination is settled before the plan is opened and
+                           again immediately before the copy is written, which
+                           is the only moment the documents the plan named are
+                           known. A directory on the way to the destination is
+                           created if it does not exist yet.
   --out-root DIR           Directory --out may write inside
                            (default: the working directory)
   --json                   Suppress the human summary on stderr
@@ -70,9 +72,10 @@ Exit codes:
   0  every fixture case reached a verdict and the policy was satisfied
   1  the run completed and the policy failed (a status, content-type or body
      mismatch, a fixture naming an operation the contract does not declare)
-  2  invalid usage or configuration, which includes a refused --out
-     destination (stdout is empty and nothing is written), or evidence that
-     could not be obtained (an "incomplete" report on stdout, never a "pass")
+  2  invalid usage or configuration, which includes any refused or unwritable
+     --out destination (stdout is empty and nothing is written), or evidence
+     that could not be obtained (an "incomplete" report on stdout, never a
+     "pass")
 `
 
 const LIMIT_FLAGS = new Map([

@@ -39,7 +39,6 @@ says.
 | `live-header-mismatch` | `error` | The in-process mock answered without a response header the fixture expects, or with a different value for one. The header name is in `evidence`. |
 | `live-body-mismatch` | `error` | The in-process mock answered a body the fixture does not expect, or one that fails the contract schema for the status it actually returned. Carries a JSON Pointer per differing field. |
 | `duplicate-case-id` | `error` | Two fixture cases declare the same id, so their results cannot be told apart. |
-| `output-destination-refused` | `error` | The `--out` destination is the same file as an input of the run, or could not be written at all -- `evidence` carries the inode clash or the error code. Nothing was written, the input is intact, and the report still goes to stdout. |
 | `operation-without-fixture` | `warning` | A contract operation that no fixture case exercises. |
 | `expected-application-error-verified` | `info` | A case expecting a `4xx` or `5xx` matched its documented contract and passed. Emitted so that the thing this tool most easily gets wrong is visible in the report when it goes right. |
 

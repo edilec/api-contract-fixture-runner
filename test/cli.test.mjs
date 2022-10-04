@@ -80,6 +80,9 @@ test('the help text names every exit code and every --out refusal', async () => 
   assert.equal(stdout.includes('outside the'), true)
   assert.equal(stdout.includes('by hard link'), true)
   assert.equal(stdout.includes('--out-root DIR'), true)
+  // And the one shape every refusal has, which is the part a consumer that
+  // pipes stdout has to handle.
+  assert.equal(stdout.includes('stdout stays empty and the exit code is 2'), true)
 })
 
 test('stdout carries only JSON, and the summary goes to stderr', async () => {

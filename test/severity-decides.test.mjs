@@ -374,39 +374,3 @@ test('live-body-mismatch fails the run', async () => {
   assert.equal(report.summary.failed, 1)
   assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/body/id live-body-mismatch'), true)
 })
-
-test('output-destination-refused fails the run and leaves the input intact', async () => {
-  const base = await mkdtemp(join(tmpdir(), 'api-contract-fixture-runner-decides-out-'))
-  try {
-    const contractPath = join(base, 'contract.json')
-    const contractText = JSON.stringify(contractWithOneOperation(), null, 2)
-    await writeFile(contractPath, contractText)
-    await writeFile(join(base, 'fixtures.json'), JSON.stringify(fixtureWithOneCase(), null, 2))
-    const planPath = join(base, 'plan.json')
-    await writeFile(planPath, JSON.stringify({ contract: 'contract.json', fixtures: 'fixtures.json' }, null, 2))
-
-    let code = 0
-    let stdout = ''
-    let stderr = ''
-    try {
-      const result = await run(process.execPath, [CLI, '--plan', planPath, '--label', 'plan.json', '--out', contractPath], { cwd: base })
-      stdout = result.stdout
-      stderr = result.stderr
-    } catch (error) {
-      code = error.code
-      stdout = error.stdout
-      stderr = error.stderr
-    }
-    const report = JSON.parse(stdout)
-
-    assert.equal(code, 1)
-    assert.equal(report.status, 'fail')
-    assert.equal(report.summary.errors, 1)
-    assert.equal(stderr.includes('ERROR   plan.json/ output-destination-refused'), true)
-
-    const { readFile } = await import('node:fs/promises')
-    assert.equal(await readFile(contractPath, 'utf8'), contractText)
-  } finally {
-    await rm(base, { recursive: true, force: true })
-  }
-})

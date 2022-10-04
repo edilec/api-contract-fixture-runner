@@ -20,6 +20,12 @@ import { promisify } from 'node:util'
  * So the refusal compares `dev` and `ino`. The first test below asserts both
  * halves: that the real paths genuinely differ (so a real-path check would
  * have passed) and that the write was refused anyway.
+ *
+ * Which files the run read is only known once it has read them, so the
+ * destination is settled twice -- before the plan is opened, and again
+ * immediately before the copy is written. Both settlings answer the same way,
+ * and that is what the assertions below are on: a refused destination is a
+ * configuration error, so stdout carries nothing at all.
  */
 
 const run = promisify(execFile)
@@ -75,12 +81,15 @@ test('a hard link to an input is refused, though its real path is different', as
     assert.equal(left.dev, right.dev)
 
     const before = await readFile(contractPath, 'utf8')
-    const { code, stdout } = await cli(base, ['--out', hardLink, '--json'])
-    const report = JSON.parse(stdout)
+    const { code, stdout, stderr } = await cli(base, ['--out', hardLink, '--json'])
 
-    assert.equal(code, 1)
-    assert.equal(report.status, 'fail')
-    assert.equal(report.findings.some((finding) => finding.ruleId === 'output-destination-refused'), true)
+    // The contract is named by the plan, so this destination cannot be
+    // recognised as an input until the plan has been read. It is recognised
+    // before the copy is written, which is still before anything has reached
+    // stdout, so the answer is the one a refused destination always gets.
+    assert.equal(code, 2)
+    assert.equal(stdout, '')
+    assert.equal(stderr.includes('same file as an input'), true)
     assert.equal(await readFile(contractPath, 'utf8'), before, 'the contract must be untouched')
   })
 })
@@ -145,39 +154,48 @@ test('a destination that does not exist yet is created without complaint', async
   })
 })
 
-test('a destination the run cannot write is reported, and the evidence it computed is not thrown away', async () => {
+test('a directory on the way to the destination is created rather than refused', async () => {
   await withBase(async (base) => {
     await seed(base)
-    // A directory that does not exist. The run has already checked everything
-    // by the time the copy is attempted, and throwing that away leaves a user
-    // with an exit code, an empty stdout and no report -- for a mistyped path.
-    const { code, stdout } = await cli(base, ['--out', join(base, 'no', 'such', 'report.json'), '--json'])
+    // The guard already permits a destination whose directories do not exist
+    // yet -- it resolves the nearest existing ancestor and appends the missing
+    // segments -- so refusing the write at the last moment would be a refusal
+    // the check itself does not make.
+    const out = join(base, 'no', 'such', 'report.json')
+    const { code, stdout } = await cli(base, ['--out', out, '--json'])
 
-    assert.equal(code, 1)
-    const report = JSON.parse(stdout)
-    assert.equal(report.status, 'fail')
-    assert.equal(report.summary.checked, 1)
-
-    const refusal = report.findings.find((finding) => finding.ruleId === 'output-destination-refused')
-    assert.notEqual(refusal, undefined)
-    assert.equal(refusal.evidence, 'ENOENT')
-    assert.equal(refusal.location.file, 'plan.json')
-
-    // The host path is in the error and never in the report.
-    assert.equal(stdout.includes(base), false)
+    assert.equal(code, 0)
+    assert.equal(await readFile(out, 'utf8'), stdout)
   })
 })
 
-test('an unwritable destination leaves an incomplete run incomplete', async () => {
+test('a destination that cannot be written at all is configuration, so stdout stays empty', async () => {
   await withBase(async (base) => {
     await seed(base)
-    await writeFile(join(base, 'contract.json'), 'not json')
-    const { code, stdout } = await cli(base, ['--out', join(base, 'no', 'such', 'report.json'), '--json'])
+    // A destination underneath a regular file. Nothing can be created there,
+    // and a run that could not file the copy it was asked for has not done
+    // what it was asked -- so it says so on stderr and prints no report.
+    const { code, stdout, stderr } = await cli(base, ['--out', join(base, 'contract.json', 'report.json'), '--json'])
 
     assert.equal(code, 2)
-    const report = JSON.parse(stdout)
-    assert.equal(report.status, 'incomplete')
-    assert.equal(report.findings.some((finding) => finding.ruleId === 'output-destination-refused'), true)
-    assert.equal(report.findings.some((finding) => finding.ruleId === 'document-not-json'), true)
+    assert.equal(stdout, '')
+    assert.equal(stderr.includes('--out could not be written'), true)
+  })
+})
+
+test('a document the run could not parse is still an input the destination is refused against', async () => {
+  await withBase(async (base) => {
+    await seed(base)
+    const contractPath = join(base, 'contract.json')
+    await writeFile(contractPath, 'not json')
+    const { code, stdout, stderr } = await cli(base, ['--out', contractPath, '--json'])
+
+    // The run failed to use this document, which is not the same as not
+    // having needed it: it was resolved, opened and read, and it is not the
+    // place to put the report.
+    assert.equal(code, 2)
+    assert.equal(stdout, '')
+    assert.equal(stderr.includes('same file as an input'), true)
+    assert.equal(await readFile(contractPath, 'utf8'), 'not json')
   })
 })
