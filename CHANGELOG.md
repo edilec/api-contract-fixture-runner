@@ -57,9 +57,8 @@ All notable changes to this project are documented in this file.
 - an optional `--out` copy of the report, refused when its destination shares an
   inode with any input of the run — a hard link has no target for `realpath` to
   resolve, and a real-path comparison is exactly how a tool comes to write its
-  report over its own contract — and reported the same way, with the error code
-  and never the host path, when the destination cannot be written at all, so a
-  mistyped directory does not discard a report the run had already computed;
+  report over its own contract — with every refusal answered as configuration:
+  nothing written, an empty stdout and exit code 2;
 - strict UTF-8 decoding with `TextDecoder('utf-8', { fatal: true })` for every
   byte source, the plan file included, so whether an input is decodable is the
   decoder's decision and never an inference drawn from the decoded text;
@@ -103,8 +102,28 @@ All notable changes to this project are documented in this file.
   opened, with `lstat`, a resolved parent and an output root that defaults to
   the working directory and is widened only by naming it: nothing is written,
   stdout stays empty, exit code 2. The inode comparison against the contract and
-  fixture documents stays where it was, at the moment the copy is written, which
-  is when those inputs are known.
+  fixture documents was left where it was, at the moment the copy is written —
+  see the entry below, which is where that ended up.
+- every refused `--out` destination now has one shape: exit 2, a stdout of
+  exactly 0 bytes, nothing written. Two of the three did not. From inside a copy
+  of `examples/clean`, `--out plan.json` exited 2 with an empty stdout — correct
+  — while `--out contract.json` and `--out fixtures.json` exited **1 with the
+  whole 2700-byte report on stdout**, because a document the plan names is only
+  known to be an input once the plan has been read, and the refusal was reported
+  as an `output-destination-refused` finding instead of answered as the
+  configuration error it is. No input was ever destroyed; the exit shape was
+  wrong. The destination is now settled a second time, against every document
+  the run resolved, immediately before the copy is written — the shape
+  `license-obligation-scanner` already uses — and each document's real path is
+  recorded before the file is opened, so one that turned out to be unreadable,
+  too large or unparseable is protected too. Consequences: a destination that
+  cannot be written at all is exit 2 with an empty stdout rather than a finding,
+  since a run that could not file the copy it was asked for has not done what it
+  was asked; the missing directories of a destination are created, which is what
+  the guard already permits by resolving through them; and
+  `output-destination-refused` is gone from the rule table, from
+  `SEVERITY_DECIDES` and from `docs/contract-rules.md`, because no run can raise
+  it any more.
 
 ### Added
 
@@ -118,12 +137,14 @@ All notable changes to this project are documented in this file.
   destinations that must still work are pinned with the same weight.
   `test/destination.test.mjs` drives the real binary once per hole — a symbolic
   link at the destination, a dangling one, a symlinked parent that leaves the
-  root, a `..` escape, a destination that is a directory — and once per allowed
-  destination: a plain path, a subdirectory, a rewrite of the previous run's
-  report, a directory reached through a symbolic link that stays inside the
-  root, and a path outside the working directory once `--out-root` names it. A
-  guard that refuses everything passes every data-loss test while making the
-  tool useless.
+  root, a `..` escape, a destination that is a directory, the contract document
+  the plan names, the fixture document it names, and a hard link to one of them
+  — and once per allowed destination: a plain path, a subdirectory, a directory
+  that does not exist yet, a rewrite of the previous run's report, a directory
+  reached through a symbolic link that stays inside the root, and a path outside
+  the working directory once `--out-root` names it. Every refusal asserts exit
+  2, an empty stdout and the input byte-identical. A guard that refuses
+  everything passes every data-loss test while making the tool useless.
 - A parse failure does not quote the document it failed on. V8 writes
   `Unexpected token 'A', "AKIAIOSFODNN7EXAMPLE" is not valid JSON`, so a plan or
   a declared document short enough to be nothing but a credential was reproduced
@@ -172,12 +193,16 @@ All notable changes to this project are documented in this file.
   ids, so substituting a collator there provably changes no output; that
   enumeration is in `test/finding-order.test.mjs`, and the site is recorded as an
   equivalent mutant rather than counted as coverage or left unmentioned.
-- Nothing is written over an input. The `--out` refusal compares inodes, and
-  `test/path-identity.test.mjs` asserts both that a hard link's real path differs
-  from its input's and that the write was refused anyway. The refusal *rebuilds*
-  the report around itself, and every row goes back through the one place that
-  raises `incomplete`, so a run that never parsed its contract cannot come out
-  of that rebuild reporting that the policy merely failed.
+- Nothing is written over an input, and a refused destination never prints a
+  report. The `--out` refusal compares inodes, and `test/path-identity.test.mjs`
+  asserts both that a hard link's real path differs from its input's and that
+  the write was refused anyway. Because the destination is settled again against
+  the run's own documents before the copy is written, that refusal reaches the
+  caller as exit 2 with a 0-byte stdout — the shape a configuration error has in
+  this catalog — whatever verdict the run underneath it had reached, and
+  `test/incomplete-backstop.test.mjs` pins that by showing the two runs it
+  cannot distinguish with `--out` and the two exit codes and statuses they
+  genuinely have without it.
 - The pattern bound is measured, not declared. `test/pattern-bound.test.mjs`
   drives each catastrophic shape through the real binary and kills the child if
   it has not answered within five seconds — `^\d+\d+...\d+$`, twenty adjacent
@@ -197,10 +222,18 @@ All notable changes to this project are documented in this file.
   back to the scanner that compiled `\d+\d+` — each was applied, watched to
   fail, and fixed. Where a substitution provably changes no output it is
   recorded as an equivalent mutant, with the enumeration that proves it, rather
-  than counted as coverage: the rule-id ordering site, and — once every row of
-  the `--out` rebuild goes back through `record` — the assignment that raises
-  `incomplete` explicitly there, which no fixture can now distinguish because
-  every status the rebuild can inherit is raised by a rule in the one list.
+  than counted as coverage: the rule-id ordering site, and the first of the two
+  `--out` settlings, which no fixture can distinguish now that the second one
+  answers every refusal the same way — it is kept because a destination that is
+  already wrong should cost no reading, not because a test can see it.
+- The second `--out` settling is pinned rather than declared. Removing it — the
+  destination settled once, before the plan is opened, and written to
+  afterwards, which is exactly the shape that put a 2700-byte report on stdout
+  for `--out contract.json` — fails 7 of the 220 tests `npm test` runs on this
+  tree: the contract document, the fixture document and the hard link to one of
+  them in `test/destination.test.mjs`, the hard link and the unparsed document
+  in `test/path-identity.test.mjs`, and both refusal tests in
+  `test/incomplete-backstop.test.mjs`. Restored, 220 of 220 pass.
 
 ### Notes
 

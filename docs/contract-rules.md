@@ -386,7 +386,7 @@ do not silently become one.
 | ---: | --- | --- |
 | `0` | every case reached a verdict and the policy was satisfied | the report |
 | `1` | the run completed and the policy failed | the report |
-| `2` | invalid usage or configuration | **empty** |
+| `2` | invalid usage or configuration, including any refused or unwritable `--out` destination | **empty** |
 | `2` | evidence that could not be obtained | an `incomplete` report |
 
 A consumer that pipes stdout must handle an empty stdout on exit 2. A configuration error means the

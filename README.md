@@ -128,41 +128,39 @@ the supported schema subset, and the limits.
 
 ## Nothing is ever written over an input, or anywhere it was not pointed
 
-`--out` writes the same bytes stdout carried to a file, for archiving from CI. Where that file may
-land is checked in two places, because the two questions are answerable at different times.
-
-**Before the run starts**, from the destination alone. Three independent holes, and this tool had
-closed exactly one of them — pointed at a symbolic link, it wrote its report through the link and
-destroyed a file outside the working directory, exiting 0 with a `pass` report on stdout:
+`--out` writes the same bytes stdout carried to a file, for archiving from CI. Every destination
+below is refused, and a refusal is always the same shape: **nothing is written, stdout stays empty
+and the exit code is 2**. A refused destination is a configuration error — the run was asked to
+write somewhere it must not write — so there is no report about it to print.
 
 | Refused | Why the obvious guard misses it |
 | --- | --- |
 | a **symbolic link at the destination** | `realpath` on the destination *resolves* the link, and resolving is the dangerous act, so it is refused on sight with `lstat` before anything is opened. A link whose target does not exist yet is the same hole: following it creates a new file outside the root. |
 | a **symlinked parent directory** | a lexical prefix check passes for `root/link/report.json` where `link` leaves the root, so the parent is resolved and then compared. |
 | a destination **outside the output root** | the working directory, unless `--out-root DIR` names another. A `..` segment does not widen it. |
-| the **plan itself**, by path or hard link | the plan is the one input the run knows before it begins. |
+| an **input of this run**, by path or hard link | the plan, and the contract and fixture documents it names. |
+| a destination that **cannot be written at all** | a run that could not file the copy it was asked for has not done what it was asked, so it says the error code on stderr rather than printing a report that claims otherwise. |
 
-These are configuration errors: **nothing is written, stdout stays empty and the exit code is 2**.
+The input comparison is on `dev` and `ino`, not on the real path. `realpath` resolves a symbolic
+link, but a **hard link has no target**: two names for one inode resolve to two different real
+paths, a real-path comparison sees two different files, and the run writes its report over its own
+contract. `test/path-identity.test.mjs` asserts both halves — that the real paths genuinely differ,
+and that the write was refused anyway.
 
-**When the copy is written**, against the documents the run turned out to read. The contract and
-fixture documents are discovered by reading the plan, so a destination that lands on one of them is
-evidence about a run that happened rather than a configuration error: it is reported as
-`output-destination-refused`, the report still goes to stdout, and nothing is written. A destination
-that cannot be written at all — a directory that does not exist, a permission the run does not have
-— is reported the same way, because discarding a whole report because a copy of it could not be
-filed is the worse answer. The error code reaches the report; the host path never does.
-
-That comparison is on `dev` and `ino`, not on the real path. `realpath` resolves a symbolic link, but
-a **hard link has no target**: two names for one inode resolve to two different real paths, a
-real-path comparison sees two different files, and the run writes its report over its own contract.
-`test/path-identity.test.mjs` asserts both halves — that the real paths genuinely differ, and that
-the write was refused anyway.
+Which files are inputs is the one question that cannot be answered before the run: the plan names
+the contract and the fixture documents, and a plan has to be read to know what it names. So the
+destination is settled **twice** — once before the plan is opened, against the plan alone, and once
+more immediately before the copy is written, against every document the run resolved. The second
+settling happens while stdout is still empty, which is what lets both refusals have one shape. The
+real path of each document is recorded before it is opened, so one that turned out to be unreadable,
+too large or unparseable is protected as well: failing to read a file is not the same as not having
+needed it.
 
 Destinations that must still work, pinned in `test/destination.test.mjs` with the same weight as the
-refusals: a plain path, a subdirectory, a rewrite of the previous run's report, a directory reached
-through a symbolic link that stays inside the root, and a path outside the working directory once
-`--out-root` names the root it belongs to. A guard that refuses everything passes every data-loss
-test while making the tool useless.
+refusals: a plain path, a subdirectory, a directory that does not exist yet (it is created), a
+rewrite of the previous run's report, a directory reached through a symbolic link that stays inside
+the root, and a path outside the working directory once `--out-root` names the root it belongs to. A
+guard that refuses everything passes every data-loss test while making the tool useless.
 
 ## The bounded schema subset
 
@@ -210,7 +208,7 @@ reported as unchecked rather than guessed at.
 | ---: | --- | --- |
 | `0` | every case reached a verdict and the policy was satisfied | the report |
 | `1` | the run completed and the policy failed | the report |
-| `2` | invalid usage or configuration, including a refused `--out` destination | **empty** |
+| `2` | invalid usage or configuration, including any refused or unwritable `--out` destination | **empty** |
 | `2` | evidence that could not be obtained | an `incomplete` report |
 
 Unknown evidence is never a pass. `pass` with `checked: 0` is not reachable: a run that reached a
