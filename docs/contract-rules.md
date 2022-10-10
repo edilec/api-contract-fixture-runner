@@ -161,6 +161,10 @@ stops: a one-character typo must not quietly turn a real failure into a green ru
   a default.
 - Operation ids are unique. A contract must declare at least one operation: a contract with none
   can only produce a verdict on no evidence.
+- An operation id, fixture case id, fixture `operationId`, and mock route `operationId` or `caseId`
+  must retain visible text after the report's single-line sanitisation. A raw string made only of
+  removed marks or whitespace is invalid input, not a matching or missing identifier; the run is
+  `incomplete` with `document-invalid`.
 
 ## The fixture document
 

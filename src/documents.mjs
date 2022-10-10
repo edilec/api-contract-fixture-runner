@@ -13,6 +13,11 @@
 import { isRecord } from './schema.mjs'
 import { describeValue, pointerAppend, sanitize } from './text.mjs'
 
+/** An identifier must still name something after the report's rendering rules. */
+function hasVisibleId(value) {
+  return typeof value === 'string' && sanitize(value) !== ''
+}
+
 export const CONTRACT_VERSION = '1'
 export const FIXTURE_VERSION = '1'
 
@@ -272,7 +277,7 @@ export function validateContract(document, limits) {
     if (!requireRecord(operation, errors, pointer, 'An operation')) continue
     closedKeys(operation, OPERATION_KEYS, pointer, unknown)
 
-    if (typeof operation.id !== 'string' || operation.id === '') {
+    if (!hasVisibleId(operation.id)) {
       fail(errors, pointerAppend(pointer, 'id'), 'An operation must declare a non-empty string id.', describeValue(operation.id, 40))
     } else if (seen.has(operation.id)) {
       fail(errors, pointerAppend(pointer, 'id'), 'Two operations declare the same id, so a fixture could not name one of them.', sanitize(operation.id, 60))
@@ -372,10 +377,10 @@ export function validateFixtures(document, limits) {
     if (!requireRecord(fixture, errors, pointer, 'A fixture case')) continue
     closedKeys(fixture, CASE_KEYS, pointer, unknown)
 
-    if (typeof fixture.id !== 'string' || fixture.id === '') {
+    if (!hasVisibleId(fixture.id)) {
       fail(errors, pointerAppend(pointer, 'id'), 'A fixture case must declare a non-empty string id.', describeValue(fixture.id, 40))
     }
-    if (typeof fixture.operationId !== 'string' || fixture.operationId === '') {
+    if (!hasVisibleId(fixture.operationId)) {
       fail(errors, pointerAppend(pointer, 'operationId'), 'A fixture case must name the operation it exercises.', describeValue(fixture.operationId, 40))
     }
     if (Object.hasOwn(fixture, 'description') && typeof fixture.description !== 'string') {
@@ -488,10 +493,10 @@ export function validatePlan(document) {
           const route = mock.routes[index]
           if (!requireRecord(route, errors, pointer, 'A mock route')) continue
           closedKeys(route, ROUTE_KEYS, pointer, unknown)
-          if (Object.hasOwn(route, 'caseId') && (typeof route.caseId !== 'string' || route.caseId === '')) {
+          if (Object.hasOwn(route, 'caseId') && !hasVisibleId(route.caseId)) {
             fail(errors, pointerAppend(pointer, 'caseId'), 'A mock route "caseId" must be a non-empty string.', describeValue(route.caseId, 40))
           }
-          if (typeof route.operationId !== 'string' || route.operationId === '') {
+          if (!hasVisibleId(route.operationId)) {
             fail(errors, pointerAppend(pointer, 'operationId'), 'A mock route must name the operation it answers.', describeValue(route.operationId, 40))
           } else {
             const key = JSON.stringify([route.operationId, Object.hasOwn(route, 'caseId') ? route.caseId : null])

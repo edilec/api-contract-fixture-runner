@@ -214,6 +214,24 @@ test('two mock routes may not answer the same operation for the same case', () =
   assert.deepEqual(validatePlan(narrowed).errors, [])
 })
 
+test('a mock route identifier that renders empty is invalid at either field', () => {
+  for (const key of ['operationId', 'caseId']) {
+    const plan = structuredClone(goodPlan)
+    plan.mock.routes[0][key] = String.fromCharCode(0x200e)
+    const result = validatePlan(plan)
+    assert.equal(result.ok, false, key)
+    assert.equal(result.errors.some((row) => row.pointer === `/mock/routes/0/${key}`), true, key)
+  }
+})
+
+test('a mock route identifier with visible text remains legal after rendering', () => {
+  const plan = structuredClone(goodPlan)
+  const mark = String.fromCharCode(0x200e)
+  plan.mock.routes[0].operationId = `createOrder${mark}`
+  plan.mock.routes[0].caseId = `case${mark}`
+  assert.deepEqual(validatePlan(plan).errors, [])
+})
+
 test('a plan must name both documents', () => {
   for (const key of ['contract', 'fixtures']) {
     const broken = structuredClone(goodPlan)

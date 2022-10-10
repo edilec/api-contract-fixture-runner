@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import test from 'node:test'
@@ -96,6 +96,88 @@ test('stdout carries only JSON, and the summary goes to stderr', async () => {
     const quiet = await cli(['--plan', join(base, 'plan.json'), '--label', 'plan.json', '--json'], base)
     assert.equal(quiet.stdout, result.stdout)
     assert.equal(quiet.stderr, '')
+  })
+})
+
+test('a fixture case id that renders empty cannot pass or appear as an empty reported id', async () => {
+  await withPlan(async (base) => {
+    const fixturesPath = join(base, 'fixtures.json')
+    const fixtures = JSON.parse(await readFile(fixturesPath))
+    fixtures.cases[0].id = String.fromCharCode(0x200e)
+    await writeFile(fixturesPath, JSON.stringify(fixtures))
+
+    const result = await cli(['--plan', join(base, 'plan.json'), '--no-call', '--json'], base)
+    const report = JSON.parse(result.stdout)
+    assert.equal(result.code, 2)
+    assert.equal(report.status, 'incomplete')
+    assert.equal(report.summary.checked, 0)
+    assert.deepEqual(report.run.cases, [])
+    assert.equal(report.findings.some((row) => row.ruleId === 'document-invalid'
+      && row.location.file === 'fixtures.json' && row.location.pointer === '/cases/0/id'), true)
+  })
+})
+
+test('an invisible operation id on both comparison sides is invalid, not a matching operation', async () => {
+  await withPlan(async (base) => {
+    const invisible = String.fromCharCode(0x200e)
+    const contractPath = join(base, 'contract.json')
+    const fixturesPath = join(base, 'fixtures.json')
+    const contract = JSON.parse(await readFile(contractPath))
+    const fixtures = JSON.parse(await readFile(fixturesPath))
+    contract.operations[0].id = invisible
+    fixtures.cases[0].operationId = invisible
+    await writeFile(contractPath, JSON.stringify(contract))
+    await writeFile(fixturesPath, JSON.stringify(fixtures))
+
+    const result = await cli(['--plan', join(base, 'plan.json'), '--no-call', '--json'], base)
+    const report = JSON.parse(result.stdout)
+    assert.equal(result.code, 2)
+    assert.equal(report.status, 'incomplete')
+    assert.equal(report.summary.checked, 0)
+    assert.deepEqual(report.run.cases, [])
+    assert.equal(report.findings.some((row) => row.ruleId === 'document-invalid'
+      && row.location.file === 'contract.json' && row.location.pointer === '/operations/0/id'), true)
+    assert.equal(report.findings.some((row) => row.ruleId === 'document-invalid'
+      && row.location.file === 'fixtures.json' && row.location.pointer === '/cases/0/operationId'), true)
+  })
+})
+
+test('an invisible operation reference alone is invalid, not an absent operation finding', async () => {
+  await withPlan(async (base) => {
+    const fixturesPath = join(base, 'fixtures.json')
+    const fixtures = JSON.parse(await readFile(fixturesPath))
+    fixtures.cases[0].operationId = String.fromCharCode(0x200e)
+    await writeFile(fixturesPath, JSON.stringify(fixtures))
+
+    const result = await cli(['--plan', join(base, 'plan.json'), '--no-call', '--json'], base)
+    const report = JSON.parse(result.stdout)
+    assert.equal(result.code, 2)
+    assert.equal(report.status, 'incomplete')
+    assert.equal(report.findings.some((row) => row.ruleId === 'document-invalid'
+      && row.location.pointer === '/cases/0/operationId'), true)
+    assert.equal(report.findings.some((row) => row.ruleId === 'request-operation-unknown'), false)
+  })
+})
+
+test('an id with visible text remains legal when an invisible mark is stripped for display', async () => {
+  await withPlan(async (base) => {
+    const mark = String.fromCharCode(0x200e)
+    const contractPath = join(base, 'contract.json')
+    const fixturesPath = join(base, 'fixtures.json')
+    const contract = JSON.parse(await readFile(contractPath))
+    const fixtures = JSON.parse(await readFile(fixturesPath))
+    contract.operations[0].id = `getThing${mark}`
+    fixtures.cases[0].operationId = contract.operations[0].id
+    fixtures.cases[0].id = `c${mark}`
+    await writeFile(contractPath, JSON.stringify(contract))
+    await writeFile(fixturesPath, JSON.stringify(fixtures))
+
+    const result = await cli(['--plan', join(base, 'plan.json'), '--no-call', '--json'], base)
+    const report = JSON.parse(result.stdout)
+    assert.equal(result.code, 0)
+    assert.equal(report.status, 'pass')
+    assert.deepEqual(report.run.cases.map(({ id, operationId, verdict }) => ({ id, operationId, verdict })),
+      [{ id: 'c', operationId: 'getThing', verdict: 'pass' }])
   })
 })
 
