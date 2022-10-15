@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { createServer } from 'node:http'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
@@ -9,13 +8,11 @@ import { fileURLToPath } from 'node:url'
 import { promisify } from 'node:util'
 
 /**
- * No call ever leaves this machine, proved the direct way.
+ * No call ever leaves this machine, checked without opening a socket.
  *
- * The first test opens a real HTTP listener on a real loopback port, declares
- * that exact port as the plan's mock base URL, runs the whole check through the
- * real binary, and asserts the listener saw **zero connections and zero
- * requests**. A tool that quietly opened a socket would be caught here rather
- * than argued about.
+ * The first test runs the real binary under a preload that throws before socket
+ * connection, listener binding, host resolution or fetch can occur. Its mock
+ * URL is inert input data, and a successful in-process call needs no network.
  *
  * The second test is the other half: a plan naming an external host is refused
  * before any call is constructed, the mock answers nothing, and the run is
@@ -27,6 +24,7 @@ import { promisify } from 'node:util'
 const run = promisify(execFile)
 const projectDirectory = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const CLI = join(projectDirectory, 'bin/api-contract-fixture-runner.mjs')
+const DENY_NETWORK = join(projectDirectory, 'test/support/deny-network.mjs')
 
 const CONTRACT = {
   contractVersion: '1',
@@ -62,55 +60,39 @@ async function withBase(body) {
 
 async function cli(base) {
   try {
-    const { stdout } = await run(process.execPath, [CLI, '--plan', join(base, 'plan.json'), '--label', 'plan.json', '--json'], { cwd: base })
+    const { stdout } = await run(process.execPath, ['--import', DENY_NETWORK, CLI,
+      '--plan', join(base, 'plan.json'), '--label', 'plan.json', '--json'], { cwd: base })
     return { code: 0, report: JSON.parse(stdout) }
   } catch (error) {
     return { code: error.code, report: JSON.parse(error.stdout) }
   }
 }
 
-test('a real listener on the declared port sees nothing at all', async () => {
-  let connections = 0
-  let requests = 0
-  const server = createServer((request, response) => {
-    requests += 1
-    response.end('{}')
+test('the real binary uses an in-process mock with all socket APIs denied', async () => {
+  const result = await withBase(async (base) => {
+    await writeFile(join(base, 'contract.json'), JSON.stringify(CONTRACT))
+    await writeFile(join(base, 'fixtures.json'), JSON.stringify(FIXTURES))
+    await writeFile(
+      join(base, 'plan.json'),
+      JSON.stringify({
+        contract: 'contract.json',
+        fixtures: 'fixtures.json',
+        call: true,
+        mock: {
+          mode: 'in-process',
+          baseUrl: 'http://127.0.0.1:8080',
+          routes: [{ operationId: 'getThing', status: 200, contentType: 'application/json', body: { id: '1' } }],
+        },
+      }),
+    )
+    return cli(base)
   })
-  server.on('connection', () => {
-    connections += 1
-  })
 
-  await new Promise((resolveListen) => server.listen(0, '127.0.0.1', resolveListen))
-  const { port } = server.address()
-
-  try {
-    const result = await withBase(async (base) => {
-      await writeFile(join(base, 'contract.json'), JSON.stringify(CONTRACT))
-      await writeFile(join(base, 'fixtures.json'), JSON.stringify(FIXTURES))
-      await writeFile(
-        join(base, 'plan.json'),
-        JSON.stringify({
-          contract: 'contract.json',
-          fixtures: 'fixtures.json',
-          call: true,
-          mock: {
-            mode: 'in-process',
-            baseUrl: `http://127.0.0.1:${port}`,
-            routes: [{ operationId: 'getThing', status: 200, contentType: 'application/json', body: { id: '1' } }],
-          },
-        }),
-      )
-      return cli(base)
-    })
-
-    assert.equal(result.code, 0)
-    assert.equal(result.report.status, 'pass')
-    assert.equal(result.report.summary.liveCalls, 1, 'the call really was made -- in this process')
-    assert.equal(connections, 0, 'the listener must have seen no connection')
-    assert.equal(requests, 0, 'the listener must have seen no request')
-  } finally {
-    await new Promise((resolveClose) => server.close(resolveClose))
-  }
+  assert.equal(result.code, 0)
+  assert.equal(result.report.status, 'pass')
+  assert.equal(result.report.summary.liveCalls, 1, 'the call really was made -- in this process')
+  assert.equal(result.report.run.mock.called, true)
+  assert.equal(result.report.run.mock.calls, 1)
 })
 
 test('an external target is refused before a call, and the local table does not answer for it', async () => {

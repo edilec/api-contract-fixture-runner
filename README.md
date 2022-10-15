@@ -40,9 +40,10 @@ URL carrying credentials — is **refused before a call is constructed**, and th
 `incomplete`, because the live evidence it asked for was never obtained. It is never quietly
 answered from the local table as though the remote host had replied.
 
-`test/no-network.test.mjs` proves it the direct way: it opens a real HTTP listener on a real
-loopback port, declares that exact port as the plan's mock, runs the whole check, and asserts the
-listener saw **zero connections and zero requests**.
+`test/no-network.test.mjs` runs the real binary with socket connection, listener binding,
+host resolution and fetch APIs replaced by functions that throw before any network operation.
+The in-process mock still completes one call. A separate source gate refuses test code that
+opens a socket or binds a listener; no test opens one, even on loopback.
 
 ## Install
 
