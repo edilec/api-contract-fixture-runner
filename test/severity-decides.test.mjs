@@ -357,6 +357,34 @@ test('a mock route that answers the header the fixture expects passes, whatever 
   assert.equal(report.summary.liveCalls, 1)
 })
 
+test('a live header mismatch hidden by rendering identifies the first raw UTF-16 unit', async () => {
+  const hidden = `token${String.fromCharCode(0x85)}part`
+  const fixtures = fixtureWithOneCase()
+  fixtures.cases[0].expect.headers = { Location: hidden }
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process', baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'createThing', status: 201, contentType: 'application/json',
+        headers: { Location: 'token part' }, body: { id: 'x' } }],
+    },
+  }
+
+  const mismatch = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+  assert.equal(mismatch.code, 1)
+  assert.equal(mismatch.report.status, 'fail')
+  assert.deepEqual(mismatch.report.findings.map((row) => row.ruleId), ['live-header-mismatch'])
+  assert.equal(mismatch.report.findings[0].location.pointer, '/cases/0/expect/headers')
+  assert.equal(mismatch.report.findings[0].evidence,
+    'expected "token part", answered "token part"; first differing UTF-16 unit at offset 5: U+0085 vs U+0020')
+
+  plan.mock.routes[0].headers.Location = hidden
+  const equal = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+  assert.equal(equal.code, 0)
+  assert.equal(equal.report.status, 'pass')
+  assert.deepEqual(equal.report.findings, [])
+})
+
 test('live-body-mismatch fails the run', async () => {
   const plan = {
     call: true,
@@ -373,4 +401,50 @@ test('live-body-mismatch fails the run', async () => {
   assert.equal(report.summary.errors, 1)
   assert.equal(report.summary.failed, 1)
   assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/body/id live-body-mismatch'), true)
+})
+
+test('a live body mismatch hidden by rendering identifies the first raw UTF-16 unit on either side', async () => {
+  const hidden = `token${String.fromCharCode(0x85)}part`
+  const fixtures = fixtureWithOneCase()
+  fixtures.cases[0].expect.body.note = hidden
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process', baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'createThing', status: 201, contentType: 'application/json',
+        body: { id: 'x', note: 'token part' } }],
+    },
+  }
+
+  const expectedHidden = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+  assert.equal(expectedHidden.code, 1)
+  assert.equal(expectedHidden.report.status, 'fail')
+  assert.deepEqual(expectedHidden.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
+  assert.equal(expectedHidden.report.findings[0].location.pointer, '/cases/0/expect/body/note')
+  assert.equal(expectedHidden.report.findings[0].evidence,
+    'expected "token part", answered "token part"; first differing UTF-16 unit at offset 5: U+0085 vs U+0020')
+
+  fixtures.cases[0].expect.body.note = 'token part'
+  plan.mock.routes[0].body.note = hidden
+  const answeredHidden = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+  assert.equal(answeredHidden.code, 1)
+  assert.equal(answeredHidden.report.status, 'fail')
+  assert.deepEqual(answeredHidden.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
+  assert.equal(answeredHidden.report.findings[0].evidence,
+    'expected "token part", answered "token part"; first differing UTF-16 unit at offset 5: U+0020 vs U+0085')
+
+  fixtures.cases[0].expect.body.note = hidden
+  const equal = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+  assert.equal(equal.code, 0)
+  assert.equal(equal.report.status, 'pass')
+  assert.deepEqual(equal.report.findings, [])
+
+  fixtures.cases[0].expect.body.note = `${'A'.repeat(90)}X`
+  plan.mock.routes[0].body.note = `${'A'.repeat(90)}Y`
+  const hiddenTail = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+  assert.equal(hiddenTail.code, 1)
+  assert.equal(hiddenTail.report.status, 'fail')
+  assert.equal(hiddenTail.report.findings[0].evidence.includes(
+    'first differing UTF-16 unit at offset 90: U+0058 vs U+0059'), true)
+  assert.equal(hiddenTail.report.findings[0].evidence.length <= 160, true)
 })

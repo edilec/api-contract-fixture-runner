@@ -236,3 +236,24 @@ export function describeValue(value, limit = 80) {
   if (rendered === undefined) rendered = String(value)
   return sanitize(rendered, limit)
 }
+
+/** Keep exact comparisons explainable when two distinct strings render alike. */
+export function describeComparison(expected, actual) {
+  const left = describeValue(expected, 40)
+  const right = describeValue(actual, 40)
+  if (left !== right || typeof expected !== 'string' || typeof actual !== 'string' || expected === actual) {
+    return `expected ${left}, answered ${right}`
+  }
+
+  let offset = 0
+  while (offset < expected.length && offset < actual.length && expected.charCodeAt(offset) === actual.charCodeAt(offset)) {
+    offset += 1
+  }
+  const unit = (value) => offset === value.length
+    ? 'end of string'
+    : `U+${value.charCodeAt(offset).toString(16).toUpperCase().padStart(4, '0')}`
+  // Shorter excerpts leave room for the distinguishing detail inside the
+  // report's 160-character evidence bound, even when the difference is late.
+  return `expected ${describeValue(expected, 24)}, answered ${describeValue(actual, 24)}; `
+    + `first differing UTF-16 unit at offset ${offset}: ${unit(expected)} vs ${unit(actual)}`
+}

@@ -50,7 +50,7 @@ import { DestinationError, assertWritableDestination } from './destination.mjs'
 import { classifyTarget, createInProcessMock } from './mock.mjs'
 import { INCOMPLETE_RULES, compareFindings, createFinding, sortFindings } from './rules.mjs'
 import { SUPPORTED_DIALECTS, isRecord, jsonEqual, validateValue } from './schema.mjs'
-import { decodeUtf8, describeValue, exceedsDepth, jsonByteLength, parseFailureDetail, pointerAppend, sanitize } from './text.mjs'
+import { decodeUtf8, describeComparison, describeValue, exceedsDepth, jsonByteLength, parseFailureDetail, pointerAppend, sanitize } from './text.mjs'
 
 export const TOOL_ID = 'api-contract-fixture-runner'
 export const REPORT_SCHEMA_VERSION = '1'
@@ -919,7 +919,7 @@ function checkLiveCall(fixture, operation, base, components, limits, mock, emit,
           pointer: pointerAppend(base, 'expect', 'headers'),
           ruleId: 'live-header-mismatch',
           message: `The in-process mock answered a different value for the "${sanitize(name, 40)}" header than the fixture expects.`,
-          evidence: `expected ${describeValue(fixture.expect.headers[name], 40)}, answered ${describeValue(value, 40)}`,
+          evidence: describeComparison(fixture.expect.headers[name], value),
         })
       }
     }
@@ -939,7 +939,7 @@ function checkLiveCall(fixture, operation, base, components, limits, mock, emit,
           pointer: difference.pointer,
           ruleId: 'live-body-mismatch',
           message: 'The in-process mock answered with a value the fixture does not expect at this field.',
-          evidence: `expected ${describeValue(difference.expected, 40)}, answered ${describeValue(difference.actual, 40)}`,
+          evidence: describeComparison(difference.expected, difference.actual),
         })
       }
     }
