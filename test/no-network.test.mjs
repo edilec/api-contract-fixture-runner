@@ -10,9 +10,10 @@ import { promisify } from 'node:util'
 /**
  * No call ever leaves this machine, checked without opening a socket.
  *
- * The first test runs the real binary under a preload that throws before socket
- * connection, listener binding, host resolution or fetch can occur. Its mock
- * URL is inert input data, and a successful in-process call needs no network.
+ * A host-free data URL fetch first proves the preload throws before fetch can
+ * run. The real binary then runs under that preload, which also denies socket
+ * connection, listener binding and host resolution. Its mock URL is inert
+ * input data, and a successful in-process call needs no network.
  *
  * The second test is the other half: a plan naming an external host is refused
  * before any call is constructed, the mock answers nothing, and the run is
@@ -67,6 +68,19 @@ async function cli(base) {
     return { code: error.code, report: JSON.parse(error.stdout) }
   }
 }
+
+test('the offline preload denies even a host-free data URL fetch', async () => {
+  let code = 0
+  let stderr = ''
+  try {
+    await run(process.execPath, ['--import', DENY_NETWORK, '--input-type=module', '--eval', "await fetch('data:text/plain,probe')"], { cwd: projectDirectory })
+  } catch (error) {
+    code = error.code
+    stderr = error.stderr
+  }
+  assert.equal(code, 1)
+  assert.match(stderr, /A network operation was attempted during an offline test\./)
+})
 
 test('the real binary uses an in-process mock with all socket APIs denied', async () => {
   const result = await withBase(async (base) => {

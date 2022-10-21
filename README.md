@@ -42,7 +42,8 @@ answered from the local table as though the remote host had replied.
 
 `test/no-network.test.mjs` runs the real binary with socket connection, listener binding,
 host resolution and fetch APIs replaced by functions that throw before any network operation.
-The in-process mock still completes one call. A separate source gate refuses test code that
+Its host-free `data:` fetch control proves the denial is active; the in-process mock still
+completes one call. A separate source gate refuses test code that
 opens a socket or binds a listener; no test opens one, even on loopback.
 
 ## Install
