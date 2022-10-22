@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import { STRIPPED_RANGES, byCodeUnit, decodeUtf8, isStripped, sanitize } from '../src/text.mjs'
-import { exceedsDepth, jsonByteLength, pointerAppend, pointerToken, describeValue } from '../src/text.mjs'
+import { exceedsDepth, jsonByteLength, pointerAppend, pointerToken, describeComparison, describeValue } from '../src/text.mjs'
 
 test('byCodeUnit orders by code unit, not by collation', () => {
   assert.equal(byCodeUnit('Z', 'a') < 0, true)
@@ -116,4 +116,13 @@ test('describeValue renders and sanitises an arbitrary value', () => {
     assert.equal(rendered.includes(String.fromCharCode(code)), false, `U+${code.toString(16)} must not survive`)
     assert.equal(rendered, '"a b"')
   }
+})
+
+test('describeComparison gives source guidance rather than raw units for a rendered collision', () => {
+  const hidden = `token${String.fromCharCode(0x85)}part`
+  const evidence = describeComparison(hidden, 'token part')
+  assert.equal(evidence,
+    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+  assert.doesNotMatch(evidence, /U\+[0-9A-F]{4}/u)
+  assert.equal(describeComparison('same', 'same'), 'expected "same", answered "same"')
 })

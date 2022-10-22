@@ -357,7 +357,7 @@ test('a mock route that answers the header the fixture expects passes, whatever 
   assert.equal(report.summary.liveCalls, 1)
 })
 
-test('a live header mismatch hidden by rendering identifies the first raw UTF-16 unit', async () => {
+test('a live header mismatch hidden by rendering fails without exposing raw units', async () => {
   const hidden = `token${String.fromCharCode(0x85)}part`
   const fixtures = fixtureWithOneCase()
   fixtures.cases[0].expect.headers = { Location: hidden }
@@ -376,7 +376,8 @@ test('a live header mismatch hidden by rendering identifies the first raw UTF-16
   assert.deepEqual(mismatch.report.findings.map((row) => row.ruleId), ['live-header-mismatch'])
   assert.equal(mismatch.report.findings[0].location.pointer, '/cases/0/expect/headers')
   assert.equal(mismatch.report.findings[0].evidence,
-    'expected "token part", answered "token part"; first differing UTF-16 unit at offset 5: U+0085 vs U+0020')
+    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+  assert.doesNotMatch(mismatch.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
 
   plan.mock.routes[0].headers.Location = hidden
   const equal = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
@@ -403,7 +404,7 @@ test('live-body-mismatch fails the run', async () => {
   assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/body/id live-body-mismatch'), true)
 })
 
-test('a live body mismatch hidden by rendering identifies the first raw UTF-16 unit on either side', async () => {
+test('a live body mismatch hidden by rendering fails safely on either side', async () => {
   const hidden = `token${String.fromCharCode(0x85)}part`
   const fixtures = fixtureWithOneCase()
   fixtures.cases[0].expect.body.note = hidden
@@ -422,7 +423,8 @@ test('a live body mismatch hidden by rendering identifies the first raw UTF-16 u
   assert.deepEqual(expectedHidden.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
   assert.equal(expectedHidden.report.findings[0].location.pointer, '/cases/0/expect/body/note')
   assert.equal(expectedHidden.report.findings[0].evidence,
-    'expected "token part", answered "token part"; first differing UTF-16 unit at offset 5: U+0085 vs U+0020')
+    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+  assert.doesNotMatch(expectedHidden.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
 
   fixtures.cases[0].expect.body.note = 'token part'
   plan.mock.routes[0].body.note = hidden
@@ -431,7 +433,8 @@ test('a live body mismatch hidden by rendering identifies the first raw UTF-16 u
   assert.equal(answeredHidden.report.status, 'fail')
   assert.deepEqual(answeredHidden.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
   assert.equal(answeredHidden.report.findings[0].evidence,
-    'expected "token part", answered "token part"; first differing UTF-16 unit at offset 5: U+0020 vs U+0085')
+    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+  assert.doesNotMatch(answeredHidden.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
 
   fixtures.cases[0].expect.body.note = hidden
   const equal = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
@@ -439,12 +442,14 @@ test('a live body mismatch hidden by rendering identifies the first raw UTF-16 u
   assert.equal(equal.report.status, 'pass')
   assert.deepEqual(equal.report.findings, [])
 
-  fixtures.cases[0].expect.body.note = `${'A'.repeat(90)}X`
-  plan.mock.routes[0].body.note = `${'A'.repeat(90)}Y`
+  fixtures.cases[0].expect.body.note = `${'A'.repeat(90)}SYNTHETIC_SECRET_CANARY`
+  plan.mock.routes[0].body.note = `${'A'.repeat(90)}OTHER`
   const hiddenTail = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
   assert.equal(hiddenTail.code, 1)
   assert.equal(hiddenTail.report.status, 'fail')
-  assert.equal(hiddenTail.report.findings[0].evidence.includes(
-    'first differing UTF-16 unit at offset 90: U+0058 vs U+0059'), true)
+  assert.equal(hiddenTail.report.findings[0].evidence,
+    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+  assert.doesNotMatch(hiddenTail.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
+  assert.equal(hiddenTail.report.findings[0].evidence.includes('SYNTHETIC_SECRET_CANARY'), false)
   assert.equal(hiddenTail.report.findings[0].evidence.length <= 160, true)
 })
