@@ -326,7 +326,8 @@ test('live-header-mismatch fails the run when the mock answers a different value
   assert.equal(report.summary.errors, 1)
   assert.equal(report.summary.failed, 1)
   assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/headers live-header-mismatch'), true)
-  assert.equal(stderr.includes('expected "/things/1", answered "/completely/different"'), true)
+  assert.equal(stderr.includes('The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.'), true)
+  assert.equal(stderr.includes('/completely/different'), false)
 })
 
 test('a mock route that answers the header the fixture expects passes, whatever the case of its name', async () => {
@@ -376,11 +377,42 @@ test('a live header mismatch hidden by rendering fails without exposing raw unit
   assert.deepEqual(mismatch.report.findings.map((row) => row.ruleId), ['live-header-mismatch'])
   assert.equal(mismatch.report.findings[0].location.pointer, '/cases/0/expect/headers')
   assert.equal(mismatch.report.findings[0].evidence,
-    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+    'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.')
   assert.doesNotMatch(mismatch.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
 
   plan.mock.routes[0].headers.Location = hidden
   const equal = await check(contractWithOneOperation(), fixtures, plan, ['--json'])
+  assert.equal(equal.code, 0)
+  assert.equal(equal.report.status, 'pass')
+  assert.deepEqual(equal.report.findings, [])
+})
+
+test('a live header mismatch keeps short secret-shaped values out of JSON and human output', async () => {
+  const canary = 'token=SYNTHETIC_SECRET_CANARY'
+  const fixtures = fixtureWithOneCase()
+  fixtures.cases[0].expect.headers = { Location: canary }
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process', baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'createThing', status: 201, contentType: 'application/json',
+        headers: { Location: 'OTHER' }, body: { id: 'x' } }],
+    },
+  }
+
+  const mismatch = await check(contractWithOneOperation(), fixtures, plan)
+  assert.equal(mismatch.code, 1)
+  assert.equal(mismatch.report.status, 'fail')
+  assert.deepEqual(mismatch.report.findings.map((row) => row.ruleId), ['live-header-mismatch'])
+  assert.equal(mismatch.report.findings[0].location.pointer, '/cases/0/expect/headers')
+  assert.equal(mismatch.report.findings[0].evidence,
+    'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.')
+  assert.equal(JSON.stringify(mismatch.report).includes(canary), false)
+  assert.equal(mismatch.stderr.includes('live-header-mismatch'), true)
+  assert.equal(mismatch.stderr.includes(canary), false)
+
+  plan.mock.routes[0].headers.Location = canary
+  const equal = await check(contractWithOneOperation(), fixtures, plan)
   assert.equal(equal.code, 0)
   assert.equal(equal.report.status, 'pass')
   assert.deepEqual(equal.report.findings, [])
@@ -423,7 +455,7 @@ test('a live body mismatch hidden by rendering fails safely on either side', asy
   assert.deepEqual(expectedHidden.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
   assert.equal(expectedHidden.report.findings[0].location.pointer, '/cases/0/expect/body/note')
   assert.equal(expectedHidden.report.findings[0].evidence,
-    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+    'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.')
   assert.doesNotMatch(expectedHidden.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
 
   fixtures.cases[0].expect.body.note = 'token part'
@@ -433,7 +465,7 @@ test('a live body mismatch hidden by rendering fails safely on either side', asy
   assert.equal(answeredHidden.report.status, 'fail')
   assert.deepEqual(answeredHidden.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
   assert.equal(answeredHidden.report.findings[0].evidence,
-    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+    'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.')
   assert.doesNotMatch(answeredHidden.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
 
   fixtures.cases[0].expect.body.note = hidden
@@ -448,8 +480,39 @@ test('a live body mismatch hidden by rendering fails safely on either side', asy
   assert.equal(hiddenTail.code, 1)
   assert.equal(hiddenTail.report.status, 'fail')
   assert.equal(hiddenTail.report.findings[0].evidence,
-    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+    'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.')
   assert.doesNotMatch(hiddenTail.report.findings[0].evidence, /U\+[0-9A-F]{4}/u)
   assert.equal(hiddenTail.report.findings[0].evidence.includes('SYNTHETIC_SECRET_CANARY'), false)
   assert.equal(hiddenTail.report.findings[0].evidence.length <= 160, true)
+})
+
+test('a live body mismatch keeps short secret-shaped values out of JSON and human output', async () => {
+  const canary = 'token=SYNTHETIC_SECRET_CANARY'
+  const fixtures = fixtureWithOneCase()
+  fixtures.cases[0].expect.body.note = canary
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process', baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'createThing', status: 201, contentType: 'application/json',
+        body: { id: 'x', note: 'OTHER' } }],
+    },
+  }
+
+  const mismatch = await check(contractWithOneOperation(), fixtures, plan)
+  assert.equal(mismatch.code, 1)
+  assert.equal(mismatch.report.status, 'fail')
+  assert.deepEqual(mismatch.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
+  assert.equal(mismatch.report.findings[0].location.pointer, '/cases/0/expect/body/note')
+  assert.equal(mismatch.report.findings[0].evidence,
+    'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.')
+  assert.equal(JSON.stringify(mismatch.report).includes(canary), false)
+  assert.equal(mismatch.stderr.includes('live-body-mismatch'), true)
+  assert.equal(mismatch.stderr.includes(canary), false)
+
+  plan.mock.routes[0].body.note = canary
+  const equal = await check(contractWithOneOperation(), fixtures, plan)
+  assert.equal(equal.code, 0)
+  assert.equal(equal.report.status, 'pass')
+  assert.deepEqual(equal.report.findings, [])
 })

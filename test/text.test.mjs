@@ -122,7 +122,10 @@ test('describeComparison gives source guidance rather than raw units for a rende
   const hidden = `token${String.fromCharCode(0x85)}part`
   const evidence = describeComparison(hidden, 'token part')
   assert.equal(evidence,
-    'Expected and answered strings differ, but safe renderings are identical; inspect the fixture expectation and mock answer at this finding\'s location.')
+    'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.')
   assert.doesNotMatch(evidence, /U\+[0-9A-F]{4}/u)
+  assert.equal(describeComparison('token=SYNTHETIC_SECRET_CANARY', 'OTHER'), evidence)
+  assert.equal(describeComparison('token=SYNTHETIC_SECRET_CANARY', 123), evidence)
+  assert.equal(describeComparison(1, 2), evidence)
   assert.equal(describeComparison('same', 'same'), 'expected "same", answered "same"')
 })

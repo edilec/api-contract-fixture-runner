@@ -237,14 +237,13 @@ export function describeValue(value, limit = 80) {
   return sanitize(rendered, limit)
 }
 
-/** Explain an exact string mismatch without exposing hidden raw content. */
+/** Explain a mismatch by source location without printing either value. */
 export function describeComparison(expected, actual) {
-  const left = describeValue(expected, 40)
-  const right = describeValue(actual, 40)
-  if (left !== right || typeof expected !== 'string' || typeof actual !== 'string' || expected === actual) {
-    return `expected ${left}, answered ${right}`
+  if (expected !== actual) {
+    return 'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.'
   }
 
-  return 'Expected and answered strings differ, but safe renderings are identical; '
-    + "inspect the fixture expectation and mock answer at this finding's location."
+  const left = describeValue(expected, 40)
+  const right = describeValue(actual, 40)
+  return `expected ${left}, answered ${right}`
 }
