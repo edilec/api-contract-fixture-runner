@@ -127,5 +127,15 @@ test('describeComparison gives source guidance rather than raw units for a rende
   assert.equal(describeComparison('token=SYNTHETIC_SECRET_CANARY', 'OTHER'), evidence)
   assert.equal(describeComparison('token=SYNTHETIC_SECRET_CANARY', 123), evidence)
   assert.equal(describeComparison(1, 2), evidence)
-  assert.equal(describeComparison('same', 'same'), 'expected "same", answered "same"')
+  assert.equal(describeComparison('same', 'same'),
+    'The fixture expectation and in-process mock answer are equal at this location; no value is shown.')
+})
+
+test('describeComparison never echoes an equal secret-shaped value', () => {
+  const canary = 'token=SYNTHETIC_SECRET_CANARY'
+  const evidence = describeComparison(canary, canary)
+  assert.equal(evidence,
+    'The fixture expectation and in-process mock answer are equal at this location; no value is shown.')
+  assert.equal(evidence.includes(canary), false)
+  assert.equal(describeComparison(7, 7), evidence)
 })

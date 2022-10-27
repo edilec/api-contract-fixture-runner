@@ -237,13 +237,10 @@ export function describeValue(value, limit = 80) {
   return sanitize(rendered, limit)
 }
 
-/** Explain a mismatch by source location without printing either value. */
+/** Explain a comparison without printing either potentially sensitive value. */
 export function describeComparison(expected, actual) {
   if (expected !== actual) {
     return 'The fixture expectation and in-process mock answer differ at this finding\'s location; compare those source fields.'
   }
-
-  const left = describeValue(expected, 40)
-  const right = describeValue(actual, 40)
-  return `expected ${left}, answered ${right}`
+  return 'The fixture expectation and in-process mock answer are equal at this location; no value is shown.'
 }
