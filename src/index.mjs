@@ -953,7 +953,6 @@ function checkLiveCall(fixture, operation, base, components, limits, mock, emit,
         pointer: bodyPointer,
         ruleId: 'live-body-mismatch',
         message: `The in-process mock answered ${actual.status} with a body and the contract documents none for that status.`,
-        evidence: describeValue(actual.body, 60),
       })
     }
     return 1

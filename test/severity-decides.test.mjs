@@ -436,6 +436,36 @@ test('live-body-mismatch fails the run', async () => {
   assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/body/id live-body-mismatch'), true)
 })
 
+test('an unexpected in-process body fails without exposing its scalar in JSON or human output', async () => {
+  const canary = 'token=SYNTHETIC_SECRET_CANARY'
+  const contract = contractWithOneOperation({ responses: [{ status: 200 }] })
+  const fixtures = fixtureWithOneCase({ expect: { status: 200 } })
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process', baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'createThing', status: 200 }],
+    },
+  }
+
+  const good = await check(contract, fixtures, plan)
+  assert.equal(good.code, 0)
+  assert.equal(good.report.status, 'pass')
+  assert.deepEqual(good.report.findings, [])
+
+  plan.mock.routes[0].body = canary
+  const mismatch = await check(contract, fixtures, plan)
+  assert.equal(mismatch.code, 1)
+  assert.equal(mismatch.report.status, 'fail')
+  assert.equal(mismatch.report.summary.failed, 1)
+  assert.deepEqual(mismatch.report.findings.map((row) => row.ruleId), ['live-body-mismatch'])
+  assert.equal(mismatch.report.findings[0].location.pointer, '/cases/0/expect/body')
+  assert.equal(Object.hasOwn(mismatch.report.findings[0], 'evidence'), false)
+  assert.equal(JSON.stringify(mismatch.report).includes(canary), false)
+  assert.equal(mismatch.stderr.includes('live-body-mismatch'), true)
+  assert.equal(mismatch.stderr.includes(canary), false)
+})
+
 test('a live body mismatch hidden by rendering fails safely on either side', async () => {
   const hidden = `token${String.fromCharCode(0x85)}part`
   const fixtures = fixtureWithOneCase()
