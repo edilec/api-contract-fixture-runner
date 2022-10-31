@@ -833,7 +833,6 @@ function checkExpectation(fixture, operation, base, components, limits, emit, em
       pointer: bodyPointer,
       ruleId: 'response-body-mismatch',
       message: `The fixture expects a ${declared.status} response body and the contract documents none.`,
-      evidence: describeValue(expect.body, 60),
     })
   }
 }

@@ -228,6 +228,29 @@ test('response-body-mismatch fails the run', async () => {
   assert.equal(stderr.includes('ERROR   fixtures.json/cases/0/expect/body/id response-body-mismatch'), true)
 })
 
+test('an undocumented expected body fails without echoing a short fixture value', async () => {
+  const contract = contractWithOneOperation()
+  delete contract.operations[0].responses[0].body
+  const fixtures = fixtureWithOneCase()
+  delete fixtures.cases[0].expect.body
+  const good = await check(contract, fixtures)
+  assert.equal(good.code, 0)
+  assert.equal(good.report.status, 'pass')
+  assert.deepEqual(good.report.findings, [])
+
+  const canary = 'token=SYNTHETIC_SECRET_CANARY'
+  fixtures.cases[0].expect.body = canary
+  const bad = await check(contract, fixtures)
+  assert.equal(bad.code, 1)
+  assert.equal(bad.report.status, 'fail')
+  assert.equal(bad.report.summary.checked, 1)
+  assert.deepEqual(bad.report.findings.map((row) => row.ruleId), ['response-body-mismatch'])
+  assert.equal(bad.report.findings[0].location.pointer, '/cases/0/expect/body')
+  assert.equal(JSON.stringify(bad.report).includes(canary), false)
+  assert.equal(bad.stderr.includes('response-body-mismatch'), true)
+  assert.equal(bad.stderr.includes(canary), false)
+})
+
 test('duplicate-case-id fails the run', async () => {
   const fixtures = fixtureWithOneCase()
   fixtures.cases.push(JSON.parse(JSON.stringify(fixtures.cases[0])))
