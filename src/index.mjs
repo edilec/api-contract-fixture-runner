@@ -754,7 +754,6 @@ function checkRequest(fixture, operation, base, components, limits, emit, emitGa
       pointer: bodyPointer,
       ruleId: 'request-body-mismatch',
       message: 'The fixture sends a request body and the contract documents none for this operation.',
-      evidence: describeValue(request.body, 60),
     })
   }
 }
