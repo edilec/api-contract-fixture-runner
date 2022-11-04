@@ -275,6 +275,32 @@ test('schema-dialect-unsupported: a dialect the contract declares for itself sto
   })
 })
 
+test('an unsupported contract dialect is incomplete without echoing its short value', async () => {
+  await withBase(async (base) => {
+    const contract = contractWithBody({ type: 'object' })
+    contract.jsonSchemaDialect = 'https://json-schema.org/draft/2020-12/schema'
+    await writeAll(base, contract, fixturesWithBody({ a: 1 }))
+    const good = await cli(base, [])
+    assert.equal(good.code, 0)
+    assert.equal(good.report.status, 'pass')
+    assert.equal(good.report.summary.checked, 1)
+
+    const canary = 'token=SYNTHETIC_SECRET_CANARY'
+    contract.jsonSchemaDialect = canary
+    await writeAll(base, contract, fixturesWithBody({ a: 1 }))
+    const bad = await cli(base, [])
+    assert.equal(bad.code, 2)
+    assert.equal(bad.report.status, 'incomplete')
+    assert.equal(bad.report.summary.checked, 0)
+    const finding = bad.report.findings.find((row) => row.ruleId === 'schema-dialect-unsupported'
+      && row.location.pointer === '/jsonSchemaDialect')
+    assert.ok(finding)
+    assert.equal(JSON.stringify(bad.report).includes(canary), false)
+    assert.equal(bad.stderr.includes('schema-dialect-unsupported'), true)
+    assert.equal(bad.stderr.includes(canary), false)
+  })
+})
+
 test('the dialect this tool does implement, declared for the whole contract, checks the fixtures', async () => {
   await withBase(async (base) => {
     const contract = contractWithBody({ type: 'object', required: ['a'], properties: { a: { type: 'integer' } } })

@@ -466,7 +466,6 @@ export async function runPlan(rawPlan, options = {}) {
       pointer: '/jsonSchemaDialect',
       ruleId: 'schema-dialect-unsupported',
       message: `This tool implements a bounded subset of ${SUPPORTED_DIALECTS[0]} only, and this contract declares that its schemas are written in another dialect, so none of them were applied.`,
-      evidence: describeValue(contract.jsonSchemaDialect, 80),
       suggestion: `Declare "jsonSchemaDialect": "${SUPPORTED_DIALECTS[0]}", or remove the key.`,
     })
     return haltedReport(label, limits, collector.rows)
