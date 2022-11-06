@@ -303,6 +303,11 @@ loopback: it is a wildcard bind address, not a destination. Anything else raises
 `mock-target-refused` before a call is constructed, and the run is `incomplete` because the live
 evidence it asked for was never obtained.
 
+Classification uses the declared URL, but `run.mock.baseUrl` publishes only an accepted loopback
+origin. A refused or uncalled mock has `[redacted]` there. Neither the finding nor the human summary
+copies path, query, fragment, credentials or a refused host from the plan; inspect `/mock/baseUrl`
+in the source plan when those details are needed.
+
 What the live call compares:
 
 - the mock's status against `expect.status`;

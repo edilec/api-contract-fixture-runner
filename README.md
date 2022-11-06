@@ -40,6 +40,12 @@ URL carrying credentials — is **refused before a call is constructed**, and th
 `incomplete`, because the live evidence it asked for was never obtained. It is never quietly
 answered from the local table as though the remote host had replied.
 
+The declared `baseUrl` is used exactly for target classification, but the report does not reproduce
+it. `run.mock.baseUrl` shows only the accepted loopback **origin**; for a refused or uncalled mock it
+is `[redacted]`. The human summary uses the same projection. Paths, queries, fragments and
+credentials belong in the source plan at `/mock/baseUrl`, not in exported diagnostics. Distinct
+declared URLs may therefore have the same reported origin.
+
 `test/no-network.test.mjs` runs the real binary with socket connection, listener binding,
 host resolution and fetch APIs replaced by functions that throw before any network operation.
 Its host-free `data:` fetch control proves the denial is active; the in-process mock still
@@ -87,8 +93,8 @@ ERROR   fixtures.json/cases/1/expect/contentType response-content-type-mismatch 
 ERROR   fixtures.json/cases/2/expect/body/quantity response-body-mismatch Expected type integer and
         found string. -- "1"
 ERROR   fixtures.json/cases/4/expect/body/id live-body-mismatch The in-process mock answered with a
-        value the fixture does not expect at this field. -- expected "6f1c2a10-...", answered
-        "11111111-..."
+        value the fixture does not expect at this field. -- The fixture expectation and in-process
+        mock answer differ at this finding's location; compare those source fields.
 ```
 
 ## The three documents

@@ -61,16 +61,16 @@ export function classifyTarget(mock) {
   try {
     url = new URL(String(mock.baseUrl))
   } catch {
-    return { ok: false, reason: `the mock base URL ${describeValue(mock.baseUrl, 60)} is not an absolute URL` }
+    return { ok: false, reason: 'the mock base URL is not an absolute URL' }
   }
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    return { ok: false, reason: `the mock base URL uses the ${url.protocol.replace(':', '')} scheme and only http and https are accepted` }
+    return { ok: false, reason: 'the mock base URL uses an unsupported scheme; only http and https are accepted' }
   }
   if (url.username !== '' || url.password !== '') {
     return { ok: false, reason: 'the mock base URL carries credentials, which a fixture run must never handle' }
   }
   if (!isLoopbackHost(url.hostname)) {
-    return { ok: false, reason: `the mock base URL host "${url.hostname}" is not a loopback address, so it names a machine other than this one` }
+    return { ok: false, reason: 'the mock base URL host is not a loopback address, so it names a machine other than this one' }
   }
   return { ok: true, host: url.hostname, url: url.href }
 }

@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 ## Unreleased
 
+### Changed
+
+- findings for a fixture body the contract does not document, an unsupported contract dialect,
+  or a refused mock target no longer echo those input values. `run.mock.baseUrl` now reports only
+  an accepted loopback origin, or `[redacted]` when the mock was refused or not called. This is an
+  intentional report-field projection change; the declared URL is still classified exactly.
+
 ### Added
 
 - a fixture runner that checks each case's request and expected response against

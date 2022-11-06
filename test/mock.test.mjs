@@ -23,7 +23,7 @@ test('every other target is refused, and the reason names what was refused', () 
     [null, /no mock was declared/],
     [{ mode: 'http', baseUrl: 'http://127.0.0.1:8080' }, /only ever calls an in-process mock/],
     [{ mode: 'in-process', baseUrl: 'not a url' }, /not an absolute URL/],
-    [{ mode: 'in-process', baseUrl: 'ftp://127.0.0.1/x' }, /ftp scheme/],
+    [{ mode: 'in-process', baseUrl: 'ftp://127.0.0.1/x' }, /unsupported scheme/],
     [{ mode: 'in-process', baseUrl: 'http://user:secret@127.0.0.1/x' }, /carries credentials/],
     [{ mode: 'in-process', baseUrl: 'https://api.example.com/v1' }, /not a loopback address/],
     [{ mode: 'in-process', baseUrl: 'http://0.0.0.0:8080' }, /not a loopback address/],

@@ -215,6 +215,49 @@ test('mock-target-refused: the run is incomplete and the rule prints as an error
   })
 })
 
+test('a refused mock URL is reported by source field without echoing URL parts', async () => {
+  await withBase(async (base) => {
+    const contract = contractWithBody({ type: 'object' })
+    const fixtures = fixturesWithBody({})
+    const route = { operationId: 'getThing', status: 200, contentType: 'application/json', body: {} }
+    await writeAll(base, contract, fixtures, {
+      call: true,
+      mock: { mode: 'in-process', baseUrl: 'http://127.0.0.1:9099', routes: [route] },
+    })
+    const good = await cli(base, [])
+    assert.equal(good.code, 0)
+    assert.equal(good.report.status, 'pass')
+    assert.equal(good.report.summary.liveCalls, 1)
+
+    const canary = 'SYNTHETIC_SECRET_CANARY'
+    for (const baseUrl of [
+      `https://api.example.com/private?token=${canary}`,
+      `https://${canary.toLowerCase()}.example.com/private`,
+      `not an absolute URL ${canary}`,
+      `ftp://127.0.0.1/private/${canary}`,
+      `http://user:${canary}@127.0.0.1/private`,
+    ]) {
+      await writeAll(base, contract, fixtures, {
+        call: true,
+        mock: { mode: 'in-process', baseUrl, routes: [route] },
+      })
+      const bad = await cli(base, [])
+      assert.equal(bad.code, 2)
+      assert.equal(bad.report.status, 'incomplete')
+      assert.equal(bad.report.summary.checked, 1, 'the fixture contract check still completed; only the requested mock evidence is missing')
+      assert.equal(bad.report.summary.liveCalls, 0)
+      const finding = bad.report.findings.find((row) => row.ruleId === 'mock-target-refused'
+        && row.location.pointer === '/mock/baseUrl')
+      assert.ok(finding)
+      assert.equal(bad.report.run.mock.called, false)
+      assert.equal(bad.report.run.mock.baseUrl, '[redacted]')
+      assert.equal(JSON.stringify(bad.report).toLowerCase().includes(canary.toLowerCase()), false)
+      assert.equal(bad.stderr.includes('mock-target-refused'), true)
+      assert.equal(bad.stderr.toLowerCase().includes(canary.toLowerCase()), false)
+    }
+  })
+})
+
 test('live-route-missing: the run is incomplete and the rule prints as an error', async () => {
   await withBase(async (base) => {
     await writeAll(base, contractWithBody({ type: 'object' }), fixturesWithBody({}), {

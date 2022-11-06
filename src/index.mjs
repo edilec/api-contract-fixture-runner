@@ -50,7 +50,7 @@ import { DestinationError, assertWritableDestination } from './destination.mjs'
 import { classifyTarget, createInProcessMock } from './mock.mjs'
 import { INCOMPLETE_RULES, compareFindings, createFinding, sortFindings } from './rules.mjs'
 import { SUPPORTED_DIALECTS, isRecord, jsonEqual, validateValue } from './schema.mjs'
-import { decodeUtf8, describeComparison, describeValue, exceedsDepth, jsonByteLength, parseFailureDetail, pointerAppend, sanitize } from './text.mjs'
+import { decodeUtf8, describeComparison, exceedsDepth, jsonByteLength, parseFailureDetail, pointerAppend, sanitize } from './text.mjs'
 
 export const TOOL_ID = 'api-contract-fixture-runner'
 export const REPORT_SCHEMA_VERSION = '1'
@@ -488,6 +488,7 @@ export async function runPlan(rawPlan, options = {}) {
   const planCall = options.call ?? rawPlan.call ?? false
   let mock = null
   let mockRefused = false
+  let reportedMockOrigin = null
   if (planCall) {
     if (!Object.hasOwn(rawPlan, 'mock')) {
       record(collector, {
@@ -504,12 +505,12 @@ export async function runPlan(rawPlan, options = {}) {
           pointer: '/mock/baseUrl',
           ruleId: 'mock-target-refused',
           message: `No call was made and no socket was opened: ${target.reason}. This tool only ever calls an in-process mock on this machine.`,
-          evidence: describeValue(rawPlan.mock.baseUrl, 80),
           suggestion: 'Point the plan at an in-process mock on a loopback address, or set "call": false.',
         })
         mockRefused = true
       } else {
         mock = createInProcessMock(rawPlan.mock)
+        reportedMockOrigin = new URL(target.url).origin
       }
     }
   }
@@ -517,7 +518,7 @@ export async function runPlan(rawPlan, options = {}) {
     ? {
         declared: true,
         mode: sanitize(rawPlan.mock?.mode ?? '', 40),
-        baseUrl: sanitize(rawPlan.mock?.baseUrl ?? '', 120),
+        baseUrl: reportedMockOrigin ?? '[redacted]',
         called: mock !== null,
         refused: mockRefused,
         calls: 0,

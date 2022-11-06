@@ -405,6 +405,49 @@ test('a mock route that answers the header the fixture expects passes, whatever 
   assert.equal(report.summary.liveCalls, 1)
 })
 
+test('an accepted mock URL uses its origin in reports without changing in-process calls', async () => {
+  const contract = contractWithOneOperation()
+  const fixtures = fixtureWithOneCase()
+  const plan = {
+    call: true,
+    mock: {
+      mode: 'in-process', baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'createThing', status: 201, contentType: 'application/json', body: { id: 'x' } }],
+    },
+  }
+  const ordinary = await check(contract, fixtures, plan)
+  assert.equal(ordinary.code, 0)
+  assert.equal(ordinary.report.status, 'pass')
+  assert.equal(ordinary.report.summary.liveCalls, 1)
+  assert.equal(ordinary.report.run.mock.baseUrl, 'http://127.0.0.1:9099')
+
+  const canary = 'SYNTHETIC_SECRET_CANARY'
+  const variants = []
+  for (const suffix of ['one', 'two']) {
+    plan.mock.baseUrl = `http://127.0.0.1:9099/private/${canary}?token=${canary}-${suffix}#${canary}`
+    const run = await check(contract, fixtures, plan)
+    assert.equal(run.code, 0)
+    assert.equal(run.report.status, 'pass')
+    assert.equal(run.report.summary.liveCalls, 1)
+    assert.deepEqual(run.report.findings, [])
+    assert.equal(run.report.run.mock.baseUrl, 'http://127.0.0.1:9099')
+    assert.equal(JSON.stringify(run.report).includes(canary), false)
+    assert.equal(run.stderr.includes('http://127.0.0.1:9099'), true)
+    assert.equal(run.stderr.includes(canary), false)
+    variants.push(run.report)
+  }
+  assert.deepEqual(variants[0], variants[1])
+
+  plan.call = false
+  const skipped = await check(contract, fixtures, plan)
+  assert.equal(skipped.code, 0)
+  assert.equal(skipped.report.status, 'pass')
+  assert.equal(skipped.report.summary.liveCalls, 0)
+  assert.equal(skipped.report.run.mock.baseUrl, '[redacted]')
+  assert.equal(JSON.stringify(skipped.report).includes(canary), false)
+  assert.equal(skipped.stderr.includes(canary), false)
+})
+
 test('a live header mismatch hidden by rendering fails without exposing raw units', async () => {
   const hidden = `token${String.fromCharCode(0x85)}part`
   const fixtures = fixtureWithOneCase()
