@@ -100,21 +100,19 @@ test('jsonByteLength counts UTF-8 bytes and refuses what has no JSON encoding', 
   assert.equal(jsonByteLength(undefined), null)
 })
 
-test('describeValue renders and sanitises an arbitrary value', () => {
+test('describeValue reports value kinds without exposing a secret-shaped scalar', () => {
+  const canary = 'token=SYNTHETIC_SECRET_CANARY'
+  assert.equal(describeValue(canary), 'string')
+  assert.equal(describeValue({ nested: canary }), 'object')
+  assert.equal(describeValue([canary]), 'array')
+  assert.equal(describeValue(null), 'null')
   assert.equal(describeValue(undefined), 'absent')
-  assert.equal(describeValue(''), '""')
-  assert.equal(describeValue({ a: 1 }), '{"a":1}')
-
-  // JSON.stringify escapes C0 itself, so a newline arrives here already inert.
-  assert.equal(describeValue(`a${String.fromCharCode(10)}b`).includes(String.fromCharCode(10)), false)
-
-  // It does not escape C1, U+2028 or U+2029: those are valid JSON string
-  // content, and stripping them is this function's job rather than the
-  // serializer's. This is the case four tools in this catalog got wrong.
-  for (const code of [0x0085, 0x009b, 0x2028, 0x2029, 0x202e]) {
-    const rendered = describeValue(`a${String.fromCharCode(code)}b`)
-    assert.equal(rendered.includes(String.fromCharCode(code)), false, `U+${code.toString(16)} must not survive`)
-    assert.equal(rendered, '"a b"')
+  assert.equal(describeValue(42), 'number')
+  assert.equal(describeValue(false), 'boolean')
+  const hostile = { toJSON() { throw Error(canary) }, toString: {} }
+  assert.equal(describeValue(hostile), 'object')
+  for (const code of [0x000a, 0x0085, 0x009b, 0x2028, 0x2029, 0x202e]) {
+    assert.equal(describeValue(`a${String.fromCharCode(code)}b`), 'string')
   }
 })
 

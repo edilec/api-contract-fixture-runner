@@ -91,11 +91,16 @@ ERROR   fixtures.json/cases/0/expect/status response-status-undeclared The contr
 ERROR   fixtures.json/cases/1/expect/contentType response-content-type-mismatch The contract
         declares a 201 content type of application/json. -- application/xml
 ERROR   fixtures.json/cases/2/expect/body/quantity response-body-mismatch Expected type integer and
-        found string. -- "1"
+        found string. -- string
 ERROR   fixtures.json/cases/4/expect/body/id live-body-mismatch The in-process mock answered with a
         value the fixture does not expect at this field. -- The fixture expectation and in-process
         mock answer differ at this finding's location; compare those source fields.
 ```
+
+When an arbitrary payload or malformed document value causes a finding, its
+diagnostic evidence names the value kind (for example, `string` or `object`),
+not the value itself. The rule and source pointer identify what to inspect in
+the local document without copying credential-shaped content into the report.
 
 ## The three documents
 

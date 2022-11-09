@@ -52,6 +52,37 @@ async function withPlan(body) {
   }
 }
 
+test('an invalid mock mode reports its position without echoing its value', async () => {
+  await withPlan(async (base) => {
+    const planPath = join(base, 'plan.json')
+    const plan = JSON.parse(await readFile(planPath, 'utf8'))
+    const canary = 'token=SYNTHETIC_SECRET_CANARY'
+    plan.call = true
+    plan.mock = {
+      mode: canary,
+      baseUrl: 'http://127.0.0.1:9099',
+      routes: [{ operationId: 'getThing', status: 200 }],
+    }
+    await writeFile(planPath, JSON.stringify(plan))
+    const invalid = await cli(['--plan', planPath])
+    assert.equal(invalid.code, 2)
+    const report = JSON.parse(invalid.stdout)
+    assert.equal(report.status, 'incomplete')
+    assert.equal(report.summary.checked, 0)
+    const finding = report.findings.find((row) => row.ruleId === 'document-invalid'
+      && row.location.pointer === '/mock/mode')
+    assert.ok(finding)
+    assert.equal(invalid.stdout.includes(canary), false)
+    assert.equal(invalid.stderr.includes(canary), false)
+
+    plan.mock.mode = 'in-process'
+    await writeFile(planPath, JSON.stringify(plan))
+    const valid = await cli(['--plan', planPath])
+    assert.equal(valid.code, 0)
+    assert.equal(JSON.parse(valid.stdout).status, 'pass')
+  })
+})
+
 test('--help and --version print to stdout and exit 0', async () => {
   const help = await cli(['--help'])
   assert.equal(help.code, 0)

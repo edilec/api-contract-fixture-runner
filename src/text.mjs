@@ -219,22 +219,14 @@ export function pointerAppend(base, ...tokens) {
 }
 
 /**
- * A short, redacted rendering of an arbitrary JSON value for the evidence field.
- *
- * The result is sanitised like any other untrusted string, so a body value
- * carrying a control character cannot forge a report line through the excerpt
- * either.
+ * A value-free kind for diagnostic evidence. Even a short excerpt can disclose
+ * a credential, and an arbitrary object's string conversion may throw.
  */
-export function describeValue(value, limit = 80) {
+export function describeValue(value, _limit = 80) {
   if (value === undefined) return 'absent'
-  let rendered
-  try {
-    rendered = JSON.stringify(value)
-  } catch {
-    rendered = String(value)
-  }
-  if (rendered === undefined) rendered = String(value)
-  return sanitize(rendered, limit)
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'array'
+  return typeof value
 }
 
 /** Explain a comparison without printing either potentially sensitive value. */

@@ -147,7 +147,7 @@ test('a right-to-left override in an identifier does not reverse the report', as
   })
 })
 
-test('a hostile character in a body value is stripped from the evidence too', async () => {
+test('a hostile body key keeps a safe pointer while its value is reported by kind only', async () => {
   await withBase(async (base) => {
     await writeFile(
       join(base, 'contract.json'),
@@ -187,9 +187,13 @@ test('a hostile character in a body value is stripped from the evidence too', as
     assert.equal(stderr.includes(String.fromCharCode(0x2028)), false)
 
     // The pointer still identifies the field: the character became a space
-    // rather than vanishing, so two keys do not collapse into one.
+    // rather than vanishing, so two keys do not collapse into one. The value
+    // itself is not copied into diagnostic evidence.
     const report = JSON.parse(stdout)
+    assert.equal(report.status, 'fail')
+    assert.equal(report.findings[0].ruleId, 'response-body-mismatch')
     assert.equal(report.findings[0].location.pointer, '/cases/0/expect/body/k ey')
+    assert.equal(report.findings[0].evidence, 'string')
   })
 })
 
