@@ -127,6 +127,11 @@ schema. The fixture set declares cases, each with the request it sends and the r
 A route may narrow itself to one case with `caseId`, so a stub can answer `201` to the success
 fixture and `422` to the validation fixture of the same operation.
 
+Media types are compared exactly by type/subtype and declared parameters (with case folding and
+optional leading/trailing whitespace). A media-type field that changes when rendered for a report,
+such as one containing a hidden directional mark or collapsed internal whitespace, is invalid
+evidence: the run is `incomplete`, not a same-looking mismatch or a pass.
+
 Every key of all three documents is closed. An undeclared key is refused by name rather than
 ignored, because a one-character typo that is quietly dropped turns a real failure into a green run:
 `expct` must not disable the response check.

@@ -84,6 +84,13 @@ const TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/
  */
 export function parseMediaType(value) {
   if (typeof value !== 'string') return { ok: false, reason: 'a media type must be a string' }
+  // A comparison against content that the report flattens can otherwise
+  // produce a same-looking mismatch (or a pass when both sides hide a mark).
+  // Leading and trailing whitespace is only optional framing; characters
+  // changed inside the media type make the evidence unusable.
+  if (sanitize(value, value.length) !== value.trim()) {
+    return { ok: false, reason: 'a media type contains characters that cannot be reported unambiguously' }
+  }
   const segments = value.split(';')
   const essence = segments[0].trim().toLowerCase()
   const slash = essence.indexOf('/')

@@ -83,6 +83,76 @@ test('an invalid mock mode reports its position without echoing its value', asyn
   })
 })
 
+test('media-type evidence that changes when rendered is incomplete on every comparison side', async () => {
+  await withPlan(async (base) => {
+    const files = ['contract.json', 'fixtures.json', 'plan.json']
+    const original = Object.fromEntries(await Promise.all(files.map(async (file) =>
+      [file, JSON.parse(await readFile(join(base, file), 'utf8'))])))
+    const visible = 'application/json; charset=utf-8'
+    const hidden = `${visible}${String.fromCharCode(0x200e)}`
+    const makeDocuments = () => {
+      const documents = structuredClone(original)
+      const operation = documents['contract.json'].operations[0]
+      const fixture = documents['fixtures.json'].cases[0]
+      operation.request = { contentType: visible }
+      operation.responses[0].contentType = visible
+      fixture.request.contentType = visible
+      fixture.expect.contentType = visible
+      documents['plan.json'].call = true
+      documents['plan.json'].mock = {
+        mode: 'in-process', baseUrl: 'http://127.0.0.1:9099',
+        routes: [{ operationId: 'getThing', status: 200, contentType: visible }],
+      }
+      return documents
+    }
+    const runDocuments = async (documents) => {
+      for (const file of files) await writeFile(join(base, file), JSON.stringify(documents[file]))
+      const result = await cli(['--plan', join(base, 'plan.json'), '--label', 'plan.json', '--json'], base)
+      return { ...result, report: JSON.parse(result.stdout) }
+    }
+
+    const clean = await runDocuments(makeDocuments())
+    assert.equal(clean.code, 0)
+    assert.equal(clean.report.status, 'pass')
+    assert.equal(clean.report.summary.checked, 1)
+
+    const visibleMismatch = makeDocuments()
+    visibleMismatch['fixtures.json'].cases[0].expect.contentType = 'application/xml; charset=utf-8'
+    const different = await runDocuments(visibleMismatch)
+    assert.equal(different.code, 1)
+    assert.equal(different.report.status, 'fail')
+    assert.equal(different.report.findings.some((row) => row.ruleId === 'response-content-type-mismatch'), true)
+
+    const sides = [
+      ['contract.json', '/operations/0/request/contentType', (documents) => documents['contract.json'].operations[0].request],
+      ['fixtures.json', '/cases/0/request/contentType', (documents) => documents['fixtures.json'].cases[0].request],
+      ['contract.json', '/operations/0/responses/0/contentType', (documents) => documents['contract.json'].operations[0].responses[0]],
+      ['fixtures.json', '/cases/0/expect/contentType', (documents) => documents['fixtures.json'].cases[0].expect],
+      ['plan.json', '/mock/routes/0/contentType', (documents) => documents['plan.json'].mock.routes[0]],
+    ]
+    for (const [file, pointer, select] of sides) {
+      const documents = makeDocuments()
+      select(documents).contentType = hidden
+      const result = await runDocuments(documents)
+      assert.equal(result.code, 2, `${file}${pointer}`)
+      assert.equal(result.report.status, 'incomplete', `${file}${pointer}`)
+      assert.equal(result.report.summary.checked, 0, `${file}${pointer}`)
+      assert.equal(result.report.findings.some((row) => row.ruleId === 'document-invalid'
+        && row.location.file === file && row.location.pointer === pointer), true, `${file}${pointer}`)
+      assert.equal(result.report.findings.some((row) => row.ruleId.endsWith('content-type-mismatch')), false, `${file}${pointer}`)
+      assert.equal(result.stdout.includes(String.fromCharCode(0x200e)), false, `${file}${pointer}`)
+    }
+
+    const bothSides = makeDocuments()
+    for (const [, , select] of sides) select(bothSides).contentType = hidden
+    const both = await runDocuments(bothSides)
+    assert.equal(both.code, 2)
+    assert.equal(both.report.status, 'incomplete')
+    assert.equal(both.report.summary.checked, 0)
+    assert.equal(both.report.findings.some((row) => row.ruleId === 'document-invalid'), true)
+  })
+})
+
 test('--help and --version print to stdout and exit 0', async () => {
   const help = await cli(['--help'])
   assert.equal(help.code, 0)
