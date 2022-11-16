@@ -260,6 +260,38 @@ test('an invisible operation reference alone is invalid, not an absent operation
   })
 })
 
+test('a fixture request method changed by rendering is invalid before method comparison', async () => {
+  await withPlan(async (base) => {
+    const fixturesPath = join(base, 'fixtures.json')
+    const fixtures = JSON.parse(await readFile(fixturesPath, 'utf8'))
+    const runMethod = async (method) => {
+      fixtures.cases[0].request.method = method
+      await writeFile(fixturesPath, JSON.stringify(fixtures))
+      const result = await cli(['--plan', join(base, 'plan.json'), '--label', 'plan.json', '--json'], base)
+      return { ...result, report: JSON.parse(result.stdout) }
+    }
+
+    const exact = await runMethod('GET')
+    assert.equal(exact.code, 0)
+    assert.equal(exact.report.status, 'pass')
+    assert.equal(exact.report.summary.checked, 1)
+
+    const different = await runMethod('POST')
+    assert.equal(different.code, 1)
+    assert.equal(different.report.status, 'fail')
+    assert.equal(different.report.findings.some((row) => row.ruleId === 'request-method-mismatch'), true)
+
+    const hidden = await runMethod(`GET${String.fromCharCode(0x200e)}`)
+    assert.equal(hidden.code, 2)
+    assert.equal(hidden.report.status, 'incomplete')
+    assert.equal(hidden.report.summary.checked, 0)
+    assert.equal(hidden.report.findings.some((row) => row.ruleId === 'document-invalid'
+      && row.location.file === 'fixtures.json' && row.location.pointer === '/cases/0/request/method'), true)
+    assert.equal(hidden.report.findings.some((row) => row.ruleId === 'request-method-mismatch'), false)
+    assert.equal(hidden.stdout.includes(String.fromCharCode(0x200e)), false)
+  })
+})
+
 test('an id with visible text remains legal when an invisible mark is stripped for display', async () => {
   await withPlan(async (base) => {
     const mark = String.fromCharCode(0x200e)
