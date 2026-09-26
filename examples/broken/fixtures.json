@@ -1,0 +1,112 @@
+{
+  "fixtureVersion": "1",
+  "description": "Five cases, each broken in exactly one way, so the rules can be read off the output.",
+  "cases": [
+    {
+      "id": "status-not-documented",
+      "operationId": "createOrder",
+      "description": "A 418 nobody wrote down. Not an error because it is 4xx -- an error because the contract is silent about it.",
+      "call": false,
+      "request": {
+        "method": "POST",
+        "path": "/orders",
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": "fixture-0101" },
+        "body": { "sku": "EDL-2200", "quantity": 1 }
+      },
+      "expect": { "status": 418, "contentType": "application/json" }
+    },
+    {
+      "id": "content-type-wrong",
+      "operationId": "createOrder",
+      "call": false,
+      "request": {
+        "method": "POST",
+        "path": "/orders",
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": "fixture-0102" },
+        "body": { "sku": "EDL-2200", "quantity": 1 }
+      },
+      "expect": {
+        "status": 201,
+        "contentType": "application/xml",
+        "headers": { "Location": "/orders/6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa" },
+        "body": {
+          "id": "6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa",
+          "sku": "EDL-2200",
+          "quantity": 1,
+          "placedAt": "2026-02-03T09:15:00Z"
+        }
+      }
+    },
+    {
+      "id": "body-fields-wrong",
+      "operationId": "createOrder",
+      "call": false,
+      "request": {
+        "method": "POST",
+        "path": "/orders",
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": "fixture-0103" },
+        "body": { "sku": "EDL-2200", "quantity": 1 }
+      },
+      "expect": {
+        "status": 201,
+        "contentType": "application/json",
+        "headers": { "Location": "/orders/6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa" },
+        "body": {
+          "id": "not-a-uuid",
+          "sku": "EDL-2200",
+          "quantity": "1",
+          "placedAt": "2026-02-03T09:15:00Z",
+          "discount": 0.2
+        }
+      }
+    },
+    {
+      "id": "request-header-absent",
+      "operationId": "createOrder",
+      "call": false,
+      "request": {
+        "method": "POST",
+        "path": "/orders",
+        "contentType": "application/json",
+        "body": { "sku": "EDL-2200", "quantity": 1 }
+      },
+      "expect": {
+        "status": 201,
+        "contentType": "application/json",
+        "headers": { "Location": "/orders/6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa" },
+        "body": {
+          "id": "6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa",
+          "sku": "EDL-2200",
+          "quantity": 1,
+          "placedAt": "2026-02-03T09:15:00Z"
+        }
+      }
+    },
+    {
+      "id": "mock-disagrees",
+      "operationId": "createOrder",
+      "description": "The fixture matches the contract. The in-process mock does not match the fixture.",
+      "request": {
+        "method": "POST",
+        "path": "/orders",
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": "fixture-0105" },
+        "body": { "sku": "EDL-2200", "quantity": 1 }
+      },
+      "expect": {
+        "status": 201,
+        "contentType": "application/json",
+        "headers": { "Location": "/orders/6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa" },
+        "body": {
+          "id": "6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa",
+          "sku": "EDL-2200",
+          "quantity": 1,
+          "placedAt": "2026-02-03T09:15:00Z"
+        }
+      }
+    }
+  ]
+}

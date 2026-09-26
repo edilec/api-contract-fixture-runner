@@ -1,0 +1,48 @@
+{
+  "contractVersion": "1",
+  "title": "Orders API (one operation, so the failures below stand out)",
+  "components": {
+    "schemas": {
+      "NewOrder": {
+        "type": "object",
+        "required": ["sku", "quantity"],
+        "additionalProperties": false,
+        "properties": {
+          "sku": { "type": "string", "minLength": 3, "maxLength": 32 },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 999 }
+        }
+      },
+      "Order": {
+        "type": "object",
+        "required": ["id", "sku", "quantity", "placedAt"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "sku": { "type": "string", "minLength": 3 },
+          "quantity": { "type": "integer", "minimum": 1 },
+          "placedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    }
+  },
+  "operations": [
+    {
+      "id": "createOrder",
+      "method": "POST",
+      "path": "/orders",
+      "request": {
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": { "required": true } },
+        "body": { "$ref": "#/components/schemas/NewOrder" }
+      },
+      "responses": [
+        {
+          "status": 201,
+          "contentType": "application/json",
+          "headers": { "Location": { "required": true } },
+          "body": { "$ref": "#/components/schemas/Order" }
+        }
+      ]
+    }
+  ]
+}

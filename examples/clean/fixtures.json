@@ -1,0 +1,83 @@
+{
+  "fixtureVersion": "1",
+  "description": "Four cases. Two of them expect documented application errors, and both pass.",
+  "cases": [
+    {
+      "id": "create-order-accepted",
+      "operationId": "createOrder",
+      "description": "The ordinary success path.",
+      "request": {
+        "method": "POST",
+        "path": "/orders",
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": "fixture-0001" },
+        "body": { "sku": "EDL-2200", "quantity": 3, "note": "leave at reception" }
+      },
+      "expect": {
+        "status": 201,
+        "contentType": "application/json",
+        "headers": { "Location": "/orders/6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa" },
+        "body": {
+          "id": "6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa",
+          "sku": "EDL-2200",
+          "quantity": 3,
+          "placedAt": "2026-02-03T09:15:00Z",
+          "note": "leave at reception"
+        }
+      }
+    },
+    {
+      "id": "create-order-quantity-rejected",
+      "operationId": "createOrder",
+      "description": "A documented 422. This case PASSES: the response is an error and the contract is intact.",
+      "request": {
+        "method": "POST",
+        "path": "/orders",
+        "contentType": "application/json",
+        "headers": { "Idempotency-Key": "fixture-0002" },
+        "body": { "sku": "EDL-2200", "quantity": 4 }
+      },
+      "expect": {
+        "status": 422,
+        "contentType": "application/problem+json",
+        "body": {
+          "type": "https://errors.example.test/order-quantity",
+          "title": "The requested quantity is not available",
+          "status": 422,
+          "errors": [{ "pointer": "/quantity", "detail": "only 3 units remain" }]
+        }
+      }
+    },
+    {
+      "id": "get-order-found",
+      "operationId": "getOrder",
+      "request": { "method": "GET", "path": "/orders/6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa" },
+      "expect": {
+        "status": 200,
+        "contentType": "application/json",
+        "body": {
+          "id": "6f1c2a10-5b8d-4f2e-9a21-0c7d3e5b91aa",
+          "sku": "EDL-2200",
+          "quantity": 3,
+          "placedAt": "2026-02-03T09:15:00Z"
+        }
+      }
+    },
+    {
+      "id": "get-order-missing",
+      "operationId": "getOrder",
+      "description": "A documented 404. This case PASSES too.",
+      "request": { "method": "GET", "path": "/orders/00000000-0000-4000-8000-000000000000" },
+      "expect": {
+        "status": 404,
+        "contentType": "application/problem+json",
+        "body": {
+          "type": "https://errors.example.test/order-not-found",
+          "title": "No such order",
+          "status": 404,
+          "errors": [{ "pointer": "/orderId", "detail": "no order has this identifier" }]
+        }
+      }
+    }
+  ]
+}
