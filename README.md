@@ -55,8 +55,10 @@ opens a socket or binds a listener; no test opens one, even on loopback.
 ## Install
 
 ```sh
-npm install api-contract-fixture-runner
+npm install github:edilec/api-contract-fixture-runner
 ```
+
+This installs the public GitHub source; `api-contract-fixture-runner` is not published to npm.
 
 Or run it from a checkout with no install at all:
 
@@ -67,9 +69,9 @@ node bin/api-contract-fixture-runner.mjs --plan examples/clean/plan.json
 ## Use
 
 ```sh
-api-contract-fixture-runner --plan fixtures/orders.plan.json
-api-contract-fixture-runner --plan fixtures/orders.plan.json --json
-api-contract-fixture-runner --plan fixtures/orders.plan.json --call --out report.json
+npx api-contract-fixture-runner --plan fixtures/orders.plan.json
+npx api-contract-fixture-runner --plan fixtures/orders.plan.json --json
+npx api-contract-fixture-runner --plan fixtures/orders.plan.json --call --out report.json
 ```
 
 The JSON report goes to **stdout and nothing else**, so it pipes straight into a parser. The human
