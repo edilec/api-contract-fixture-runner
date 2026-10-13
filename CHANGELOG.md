@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented in this file.
 
-## Unreleased
+## 0.1.0 — 2026-10-14
 
 ### Changed
 
@@ -253,4 +253,4 @@ All notable changes to this project are documented in this file.
 - A loopback socket transport for the mock is deliberately absent rather than
   unfinished. `mock.mode` accepts `in-process` and nothing else.
 
-No release has been published.
+GitHub source release v0.1.0 — 2026-10-14.
